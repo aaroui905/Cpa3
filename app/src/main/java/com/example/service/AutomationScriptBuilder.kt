@@ -1,0 +1,1838 @@
+package com.example.service
+
+import com.example.data.model.GeneratedIdentity
+import org.json.JSONArray
+import org.json.JSONObject
+
+object AutomationScriptBuilder {
+
+    fun buildAntiDetectionScript(
+        proxyIp: String = "",
+        webrtcMode: String = "spoof", // "spoof", "disabled", "real"
+        timezone: String = "America/New_York",
+        language: String = "en-US",
+        latitude: Double = 40.7128,
+        longitude: Double = -74.0060
+    ): String {
+        val cleanIp = proxyIp.trim().ifBlank { "104.28.19.42" }
+        val cleanTz = timezone.trim().ifBlank { "America/New_York" }
+        val cleanLang = language.trim().ifBlank { "en-US" }
+
+        return """
+(function() {
+  // 1. WebGL Vendor & Renderer spoofing (Emulates desktop discrete GPU)
+  try {
+    var getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(parameter) {
+      if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+      if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+      if (parameter === 7936) return 'WebKit';
+      if (parameter === 7937) return 'WebKit WebGL';
+      return getParameter.call(this, parameter);
+    };
+    if (window.WebGL2RenderingContext) {
+      var getParameter2 = WebGL2RenderingContext.prototype.getParameter;
+      WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+        if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+        if (parameter === 7936) return 'WebKit';
+        if (parameter === 7937) return 'WebKit WebGL';
+        return getParameter2.call(this, parameter);
+      };
+    }
+  } catch(e) {}
+
+  // 2. Hardware, Navigator & Client Hints (Consistent Windows Desktop Profile)
+  try {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0, configurable: true });
+
+    // Spoof modern Chromium Client Hints (navigator.userAgentData)
+    var uaData = {
+      brands: [
+        { brand: 'Chromium', version: '122' },
+        { brand: 'Not(A:Brand', version: '24' },
+        { brand: 'Google Chrome', version: '122' }
+      ],
+      mobile: false,
+      platform: 'Windows',
+      getHighEntropyValues: function(hints) {
+        return Promise.resolve({
+          architecture: 'x86',
+          bitness: '64',
+          brands: [
+            { brand: 'Chromium', version: '122' },
+            { brand: 'Not(A:Brand', version: '24' },
+            { brand: 'Google Chrome', version: '122' }
+          ],
+          fullVersionList: [
+            { brand: 'Chromium', version: '122.0.6261.94' },
+            { brand: 'Not(A:Brand', version: '24.0.0.0' },
+            { brand: 'Google Chrome', version: '122.0.6261.94' }
+          ],
+          mobile: false,
+          model: '',
+          platform: 'Windows',
+          platformVersion: '15.0.0',
+          uaFullVersion: '122.0.6261.94'
+        });
+      },
+      toJSON: function() {
+        return { brands: this.brands, mobile: this.mobile, platform: this.platform };
+      }
+    };
+    try {
+      Object.defineProperty(navigator, 'userAgentData', {
+        get: function() { return uaData; },
+        configurable: true
+      });
+    } catch(e) {}
+
+    // Screen color depth
+    try {
+      Object.defineProperty(screen, 'colorDepth', { get: () => 24, configurable: true });
+      Object.defineProperty(screen, 'pixelDepth', { get: () => 24, configurable: true });
+    } catch(e) {}
+
+    // Subtle Canvas Fingerprint Shield - Randomized noise injection
+    try {
+      function addNoiseToImageData(imageData) {
+        if (!imageData || !imageData.data) return;
+        var data = imageData.data;
+        var len = data.length;
+        if (len === 0) return;
+        var stride = len > 40000 ? 16 : 4;
+        for (var i = 0; i < len; i += stride) {
+          if (data[i + 3] > 5) {
+            var noise = (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 2));
+            var channel = i % 3;
+            var val = data[i + channel] + noise;
+            data[i + channel] = val < 0 ? 0 : (val > 255 ? 255 : val);
+          }
+        }
+      }
+
+      if (window.CanvasRenderingContext2D) {
+        var origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+        var origPutImageData = CanvasRenderingContext2D.prototype.putImageData;
+
+        CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+          var imgData = origGetImageData.apply(this, arguments);
+          addNoiseToImageData(imgData);
+          return imgData;
+        };
+      }
+
+      if (window.HTMLCanvasElement) {
+        var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        var origToBlob = HTMLCanvasElement.prototype.toBlob;
+
+        function perturbCanvasPixels(canvas) {
+          try {
+            if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+            var ctx = null;
+            try { ctx = canvas.getContext('2d'); } catch(err) {}
+
+            if (ctx && typeof origGetImageData === 'function' && typeof origPutImageData === 'function') {
+              var sampleW = Math.min(canvas.width, 48);
+              var sampleH = Math.min(canvas.height, 48);
+              var slice = origGetImageData.call(ctx, 0, 0, sampleW, sampleH);
+              var d = slice.data;
+              var modified = false;
+              for (var k = 0; k < d.length; k += 4) {
+                if (d[k + 3] > 5) {
+                  var delta = (Math.random() < 0.5 ? 1 : -1);
+                  var c = k % 3;
+                  d[k + c] = Math.min(255, Math.max(0, d[k + c] + delta));
+                  modified = true;
+                  if (Math.random() < 0.08) break;
+                }
+              }
+              if (modified) {
+                origPutImageData.call(ctx, slice, 0, 0);
+              }
+            }
+          } catch(e) {}
+        }
+
+        HTMLCanvasElement.prototype.toDataURL = function(type, encoderOptions) {
+          perturbCanvasPixels(this);
+          return origToDataURL.apply(this, arguments);
+        };
+
+        HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+          perturbCanvasPixels(this);
+          return origToBlob.apply(this, arguments);
+        };
+      }
+
+      if (window.OffscreenCanvas && window.OffscreenCanvasRenderingContext2D) {
+        var origOffscreenGetImageData = OffscreenCanvasRenderingContext2D.prototype.getImageData;
+        OffscreenCanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+          var imgData = origOffscreenGetImageData.apply(this, arguments);
+          addNoiseToImageData(imgData);
+          return imgData;
+        };
+      }
+
+      if (window.WebGLRenderingContext) {
+        var origReadPixels = WebGLRenderingContext.prototype.readPixels;
+        WebGLRenderingContext.prototype.readPixels = function(x, y, width, height, format, type, pixels) {
+          origReadPixels.apply(this, arguments);
+          try {
+            if (pixels && pixels.length > 0) {
+              for (var p = 0; p < pixels.length; p += 16) {
+                if (Math.random() < 0.15) {
+                  pixels[p] = Math.min(255, Math.max(0, pixels[p] + (Math.random() < 0.5 ? 1 : -1)));
+                }
+              }
+            }
+          } catch(e) {}
+        };
+      }
+    } catch(e) {}
+
+    // Subtle AudioContext Fingerprint Shield
+    if (window.AudioBuffer) {
+      var origGetChannelData = AudioBuffer.prototype.getChannelData;
+      AudioBuffer.prototype.getChannelData = function() {
+        var data = origGetChannelData.apply(this, arguments);
+        if (data && data.length > 0) {
+          for (var i = 0; i < Math.min(data.length, 8); i++) {
+            data[i] += (Math.random() - 0.5) * 0.0000001;
+          }
+        }
+        return data;
+      };
+    }
+  } catch(e) {}
+
+  // 3. Timezone & Locale Matching (Synchronized with Proxy Country / City)
+  try {
+    var tz = '$cleanTz';
+    var lang = '$cleanLang';
+
+    var OrigDTF = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function(locales, options) {
+      options = options || {};
+      if (!options.timeZone) options.timeZone = tz;
+      return new OrigDTF(lang, options);
+    };
+    Intl.DateTimeFormat.prototype = OrigDTF.prototype;
+
+    var origResolvedOptions = OrigDTF.prototype.resolvedOptions;
+    OrigDTF.prototype.resolvedOptions = function() {
+      var res = origResolvedOptions.call(this);
+      res.timeZone = tz;
+      return res;
+    };
+
+    Object.defineProperty(navigator, 'language', { get: () => lang, configurable: true });
+    Object.defineProperty(navigator, 'languages', { get: () => [lang, lang.split('-')[0]], configurable: true });
+
+    // Dynamic Timezone Offset matching the proxy IANA timezone
+    function calculateTzOffset(ianaTz) {
+      try {
+        var date = new Date();
+        var utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+        var tzDate = new Date(date.toLocaleString('en-US', { timeZone: ianaTz }));
+        return Math.round((utcDate.getTime() - tzDate.getTime()) / 60000);
+      } catch(err) {
+        return 0;
+      }
+    }
+    var targetOffset = calculateTzOffset(tz);
+    Date.prototype.getTimezoneOffset = function() {
+      return targetOffset;
+    };
+  } catch(e) {}
+
+  // 4. HTML5 Geolocation Spoofing (Matches Proxy Latitude / Longitude exactly)
+  try {
+    if (navigator.geolocation) {
+      var fakeGeoPos = {
+        coords: {
+          latitude: $latitude,
+          longitude: $longitude,
+          accuracy: 20.0,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null
+        },
+        timestamp: Date.now()
+      };
+      navigator.geolocation.getCurrentPosition = function(success, error, options) {
+        if (typeof success === 'function') {
+          setTimeout(function() { success(fakeGeoPos); }, 20);
+        }
+      };
+      navigator.geolocation.watchPosition = function(success, error, options) {
+        if (typeof success === 'function') {
+          setTimeout(function() { success(fakeGeoPos); }, 20);
+        }
+        return 1;
+      };
+      navigator.geolocation.clearWatch = function() {};
+    }
+  } catch(e) {}
+
+  // 5. WebRTC Configuration & IP Spoofing (Mode: $webrtcMode, Target IP: $cleanIp)
+  try {
+    var mode = '$webrtcMode';
+    var targetIp = '$cleanIp';
+    var localIp = '192.168.1.105';
+
+    function applyWebRtcToWindow(targetWin) {
+      if (!targetWin) return;
+
+      if (mode === 'disabled') {
+        var webRtcProps = [
+          'RTCPeerConnection',
+          'webkitRTCPeerConnection',
+          'mozRTCPeerConnection',
+          'RTCDataChannel',
+          'RTCIceCandidate',
+          'RTCSessionDescription'
+        ];
+        webRtcProps.forEach(function(prop) {
+          try { delete targetWin[prop]; } catch(e) {}
+          try {
+            Object.defineProperty(targetWin, prop, {
+              get: function() { return undefined; },
+              set: function() {},
+              configurable: false,
+              enumerable: false
+            });
+          } catch(ex) {
+            try { targetWin[prop] = undefined; } catch(ex2) {}
+          }
+        });
+        return;
+      }
+
+      if (mode !== 'spoof') return;
+
+      // High-Fidelity WebRTC Spoofing Engine:
+      function FakeRTCIceCandidate(init) {
+        if (!init) init = {};
+        this.candidate = init.candidate || ('candidate:2130706431 1 udp 2122260223 ' + targetIp + ' 54322 typ srflx raddr ' + localIp + ' rport 54321 generation 0 ufrag abcd network-id 1');
+        this.sdpMid = init.sdpMid !== undefined ? init.sdpMid : '0';
+        this.sdpMLineIndex = init.sdpMLineIndex !== undefined ? init.sdpMLineIndex : 0;
+        this.usernameFragment = init.usernameFragment || 'abcd';
+        this.foundation = init.foundation || '2130706431';
+        this.component = init.component || 'rtp';
+        this.priority = init.priority || 2122260223;
+        this.address = init.address || targetIp;
+        this.protocol = init.protocol || 'udp';
+        this.port = init.port || 54322;
+        this.type = init.type || 'srflx';
+        this.tcpType = null;
+        this.relatedAddress = init.relatedAddress || localIp;
+        this.relatedPort = init.relatedPort || 54321;
+      }
+      FakeRTCIceCandidate.prototype.toJSON = function() {
+        return {
+          candidate: this.candidate,
+          sdpMid: this.sdpMid,
+          sdpMLineIndex: this.sdpMLineIndex,
+          usernameFragment: this.usernameFragment
+        };
+      };
+
+      function FakeRTCSessionDescription(init) {
+        if (!init) init = {};
+        this.type = init.type || 'offer';
+        this.sdp = init.sdp || '';
+      }
+      FakeRTCSessionDescription.prototype.toJSON = function() {
+        return { type: this.type, sdp: this.sdp };
+      };
+
+      function buildSpoofedSdp() {
+        return [
+          'v=0',
+          'o=- 422319207012345678 2 IN IP4 127.0.0.1',
+          's=-',
+          't=0 0',
+          'a=group:BUNDLE 0',
+          'a=msid-semantic: WMS',
+          'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+          'c=IN IP4 ' + targetIp,
+          'a=candidate:842163049 1 udp 2122199295 ' + localIp + ' 54321 typ host generation 0 ufrag abcd network-id 1',
+          'a=candidate:2130706431 1 udp 2122260223 ' + targetIp + ' 54322 typ srflx raddr ' + localIp + ' rport 54321 generation 0 ufrag abcd network-id 1',
+          'a=ice-ufrag:abcd',
+          'a=ice-pwd:abcdefghijklmnopqrstuvwxyz01',
+          'a=ice-options:trickle',
+          'a=fingerprint:sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF',
+          'a=setup:actpass',
+          'a=mid:0',
+          'a=sctp-port:5000',
+          'a=max-message-size:262144',
+          ''
+        ].join('\r\n');
+      }
+
+      function FakeRTCPeerConnection(config) {
+        var self = this;
+        this.config = config || {};
+        this.localDescription = null;
+        this.remoteDescription = null;
+        this.signalingState = 'stable';
+        this.iceGatheringState = 'new';
+        this.iceConnectionState = 'new';
+        this.connectionState = 'new';
+        this.canTrickleIceCandidates = true;
+
+        this.onicecandidate = null;
+        this.onicecandidateerror = null;
+        this.onicegatheringstatechange = null;
+        this.oniceconnectionstatechange = null;
+        this.onsignalingstatechange = null;
+        this.onconnectionstatechange = null;
+        this.onnegotiationneeded = null;
+        this.ondatachannel = null;
+        this.ontrack = null;
+
+        var listeners = {};
+        this.addEventListener = function(type, listener) {
+          if (typeof listener !== 'function') return;
+          if (!listeners[type]) listeners[type] = [];
+          listeners[type].push(listener);
+        };
+        this.removeEventListener = function(type, listener) {
+          if (!listeners[type]) return;
+          listeners[type] = listeners[type].filter(function(l) { return l !== listener; });
+        };
+        this.dispatchEvent = function(event) {
+          var type = event.type;
+          var handler = self['on' + type];
+          if (typeof handler === 'function') {
+            try { handler.call(self, event); } catch(e) {}
+          }
+          if (listeners[type]) {
+            listeners[type].forEach(function(l) {
+              try { l.call(self, event); } catch(e) {}
+            });
+          }
+          return true;
+        };
+
+        this.createDataChannel = function(label, options) {
+          var dc = {
+            label: label || '',
+            ordered: true,
+            protocol: '',
+            id: 0,
+            readyState: 'open',
+            bufferedAmount: 0,
+            onopen: null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+            send: function() {},
+            close: function() { this.readyState = 'closed'; if (this.onclose) this.onclose(); },
+            addEventListener: function() {},
+            removeEventListener: function() {},
+            dispatchEvent: function() { return true; }
+          };
+          setTimeout(function() { if (dc.onopen) dc.onopen({ type: 'open' }); }, 20);
+          return dc;
+        };
+
+        this.createOffer = function(arg1) {
+          var sdpStr = buildSpoofedSdp();
+          var offer = new FakeRTCSessionDescription({ type: 'offer', sdp: sdpStr });
+          if (typeof arg1 === 'function') {
+            arg1(offer);
+            return Promise.resolve(offer);
+          }
+          return Promise.resolve(offer);
+        };
+
+        this.createAnswer = function(arg1) {
+          var sdpStr = buildSpoofedSdp();
+          var answer = new FakeRTCSessionDescription({ type: 'answer', sdp: sdpStr });
+          if (typeof arg1 === 'function') {
+            arg1(answer);
+            return Promise.resolve(answer);
+          }
+          return Promise.resolve(answer);
+        };
+
+        this.setLocalDescription = function(desc, successCb) {
+          self.localDescription = desc || new FakeRTCSessionDescription({ type: 'offer', sdp: buildSpoofedSdp() });
+          self.signalingState = 'have-local-offer';
+          self.dispatchEvent(new Event('signalingstatechange'));
+
+          self.iceGatheringState = 'gathering';
+          self.dispatchEvent(new Event('icegatheringstatechange'));
+
+          // 1. Dispatch Host Candidate
+          setTimeout(function() {
+            if (self.signalingState === 'closed') return;
+            var hostCandidate = new FakeRTCIceCandidate({
+              candidate: 'candidate:842163049 1 udp 2122199295 ' + localIp + ' 54321 typ host generation 0 ufrag abcd network-id 1',
+              sdpMid: '0',
+              sdpMLineIndex: 0,
+              type: 'host',
+              address: localIp,
+              port: 54321,
+              relatedAddress: null,
+              relatedPort: null
+            });
+            self.dispatchEvent({ type: 'icecandidate', candidate: hostCandidate, target: self, srcElement: self });
+          }, 35);
+
+          // 2. Dispatch Server-Reflexive Candidate containing the SPOOFED PROXY IP
+          setTimeout(function() {
+            if (self.signalingState === 'closed') return;
+            var srflxCandidate = new FakeRTCIceCandidate({
+              candidate: 'candidate:2130706431 1 udp 2122260223 ' + targetIp + ' 54322 typ srflx raddr ' + localIp + ' rport 54321 generation 0 ufrag abcd network-id 1',
+              sdpMid: '0',
+              sdpMLineIndex: 0,
+              type: 'srflx',
+              address: targetIp,
+              port: 54322,
+              relatedAddress: localIp,
+              relatedPort: 54321
+            });
+            self.dispatchEvent({ type: 'icecandidate', candidate: srflxCandidate, target: self, srcElement: self });
+          }, 85);
+
+          // 3. Dispatch end-of-candidates (null candidate) and mark complete
+          setTimeout(function() {
+            if (self.signalingState === 'closed') return;
+            self.dispatchEvent({ type: 'icecandidate', candidate: null, target: self, srcElement: self });
+            self.iceGatheringState = 'complete';
+            self.dispatchEvent(new Event('icegatheringstatechange'));
+            self.iceConnectionState = 'checking';
+            self.dispatchEvent(new Event('iceconnectionstatechange'));
+          }, 150);
+
+          if (typeof successCb === 'function') successCb();
+          return Promise.resolve();
+        };
+
+        this.setRemoteDescription = function(desc, successCb) {
+          self.remoteDescription = desc;
+          if (typeof successCb === 'function') successCb();
+          return Promise.resolve();
+        };
+
+        this.addIceCandidate = function(cand, successCb) {
+          if (typeof successCb === 'function') successCb();
+          return Promise.resolve();
+        };
+
+        this.getConfiguration = function() {
+          return self.config;
+        };
+
+        this.setConfiguration = function(config) {
+          self.config = config || {};
+        };
+
+        this.getSenders = function() { return []; };
+        this.getReceivers = function() { return []; };
+        this.getTransceivers = function() { return []; };
+        this.addTrack = function(track) { return { track: track }; };
+        this.removeTrack = function() {};
+        this.addTransceiver = function() { return {}; };
+
+        this.getStats = function(selector, successCb) {
+          var stats = new Map();
+          stats.set('cand-pair', {
+            type: 'candidate-pair',
+            id: 'cand-pair',
+            state: 'succeeded',
+            localCandidateId: 'local-cand-srflx'
+          });
+          stats.set('local-cand-srflx', {
+            type: 'local-candidate',
+            id: 'local-cand-srflx',
+            candidateType: 'srflx',
+            ip: targetIp,
+            address: targetIp,
+            port: 54322,
+            protocol: 'udp'
+          });
+          if (typeof selector === 'function') {
+            selector(stats);
+            return Promise.resolve(stats);
+          }
+          return Promise.resolve(stats);
+        };
+
+        this.close = function() {
+          self.signalingState = 'closed';
+          self.iceConnectionState = 'closed';
+          self.iceGatheringState = 'complete';
+          self.connectionState = 'closed';
+        };
+      }
+
+      try {
+        Object.defineProperty(FakeRTCPeerConnection.prototype, Symbol.toStringTag, { value: 'RTCPeerConnection' });
+        Object.defineProperty(FakeRTCIceCandidate.prototype, Symbol.toStringTag, { value: 'RTCIceCandidate' });
+        Object.defineProperty(FakeRTCSessionDescription.prototype, Symbol.toStringTag, { value: 'RTCSessionDescription' });
+      } catch(e) {}
+
+      targetWin.RTCPeerConnection = FakeRTCPeerConnection;
+      targetWin.webkitRTCPeerConnection = FakeRTCPeerConnection;
+      targetWin.mozRTCPeerConnection = FakeRTCPeerConnection;
+      targetWin.msRTCPeerConnection = FakeRTCPeerConnection;
+      targetWin.RTCIceCandidate = FakeRTCIceCandidate;
+      targetWin.webkitRTCIceCandidate = FakeRTCIceCandidate;
+      targetWin.RTCSessionDescription = FakeRTCSessionDescription;
+      targetWin.webkitRTCSessionDescription = FakeRTCSessionDescription;
+
+      try {
+        Object.defineProperty(targetWin, 'RTCPeerConnection', { value: FakeRTCPeerConnection, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'webkitRTCPeerConnection', { value: FakeRTCPeerConnection, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'mozRTCPeerConnection', { value: FakeRTCPeerConnection, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'msRTCPeerConnection', { value: FakeRTCPeerConnection, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'RTCIceCandidate', { value: FakeRTCIceCandidate, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'webkitRTCIceCandidate', { value: FakeRTCIceCandidate, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'RTCSessionDescription', { value: FakeRTCSessionDescription, writable: true, configurable: true });
+        Object.defineProperty(targetWin, 'webkitRTCSessionDescription', { value: FakeRTCSessionDescription, writable: true, configurable: true });
+      } catch(e) {}
+
+      // Codecs & Capabilities spoofing for BrowserLeaks
+      var sampleAudioCodecs = [
+        { mimeType: 'audio/opus', clockRate: 48000, channels: 2, sdpFmtpLine: 'minptime=10;useinbandfec=1' },
+        { mimeType: 'audio/PCMU', clockRate: 8000, channels: 1 },
+        { mimeType: 'audio/PCMA', clockRate: 8000, channels: 1 }
+      ];
+      var sampleVideoCodecs = [
+        { mimeType: 'video/VP8', clockRate: 90000 },
+        { mimeType: 'video/H264', clockRate: 90000, sdpFmtpLine: 'level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f' },
+        { mimeType: 'video/VP9', clockRate: 90000, sdpFmtpLine: 'profile-id=0' }
+      ];
+      targetWin.RTCRtpSender = {
+        getCapabilities: function(k) {
+          return { codecs: k === 'audio' ? sampleAudioCodecs : sampleVideoCodecs, headerExtensions: [] };
+        }
+      };
+      targetWin.RTCRtpReceiver = {
+        getCapabilities: function(k) {
+          return { codecs: k === 'audio' ? sampleAudioCodecs : sampleVideoCodecs, headerExtensions: [] };
+        }
+      };
+    }
+
+    // Apply WebRTC spoof to top window
+    applyWebRtcToWindow(window);
+
+    // Iframe WebRTC Leak Shield (Protects against tests creating hidden iframes to bypass top window)
+    try {
+      var origAppendChild = Element.prototype.appendChild;
+      Element.prototype.appendChild = function(el) {
+        if (el && el.tagName === 'IFRAME') {
+          el.addEventListener('load', function() {
+            try { if (el.contentWindow) applyWebRtcToWindow(el.contentWindow); } catch(e) {}
+          });
+        }
+        return origAppendChild.apply(this, arguments);
+      };
+
+      var origInsertBefore = Element.prototype.insertBefore;
+      Element.prototype.insertBefore = function(newNode, referenceNode) {
+        if (newNode && newNode.tagName === 'IFRAME') {
+          newNode.addEventListener('load', function() {
+            try { if (newNode.contentWindow) applyWebRtcToWindow(newNode.contentWindow); } catch(e) {}
+          });
+        }
+        return origInsertBefore.apply(this, arguments);
+      };
+
+      var origContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+      if (origContentWindow && origContentWindow.get) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+          get: function() {
+            var cw = origContentWindow.get.call(this);
+            if (cw) {
+              try { applyWebRtcToWindow(cw); } catch(e) {}
+            }
+            return cw;
+          },
+          configurable: true
+        });
+      }
+
+      var origContentDoc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentDocument');
+      if (origContentDoc && origContentDoc.get) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentDocument', {
+          get: function() {
+            var cd = origContentDoc.get.call(this);
+            if (cd && cd.defaultView) {
+              try { applyWebRtcToWindow(cd.defaultView); } catch(e) {}
+            }
+            return cd;
+          },
+          configurable: true
+        });
+      }
+
+      // Continuous DOM scan for dynamically placed frames
+      setInterval(function() {
+        try {
+          var iframes = document.getElementsByTagName('iframe');
+          for (var i = 0; i < iframes.length; i++) {
+            var ifr = iframes[i];
+            if (ifr && ifr.contentWindow) {
+              applyWebRtcToWindow(ifr.contentWindow);
+            }
+          }
+        } catch(e) {}
+      }, 300);
+    } catch(e) {}
+
+    // Media devices spoofing
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices = function() {
+        return Promise.resolve([
+          { deviceId: 'default', kind: 'audioinput', label: 'Default Microphone', groupId: 'audio-1', toJSON: function() { return this; } },
+          { deviceId: 'default', kind: 'audiooutput', label: 'Default Speaker', groupId: 'audio-1', toJSON: function() { return this; } },
+          { deviceId: 'cam1', kind: 'videoinput', label: 'HD Web Camera', groupId: 'video-1', toJSON: function() { return this; } }
+        ]);
+      };
+    }
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia = function() {
+        return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+      };
+    }
+    if (navigator.mediaDevices && navigator.mediaDevices.getSupportedConstraints) {
+      navigator.mediaDevices.getSupportedConstraints = function() {
+        return {
+          aspectRatio: true,
+          autoGainControl: true,
+          channelCount: true,
+          deviceId: true,
+          echoCancellation: true,
+          facingMode: true,
+          frameRate: true,
+          groupId: true,
+          height: true,
+          noiseSuppression: true,
+          sampleRate: true,
+          sampleSize: true,
+          width: true
+        };
+      };
+    }
+  } catch(e) {
+    console.error('WebRTC configuration error:', e);
+  }
+
+  // 6. Anti-DNS-Leak Shield & Speculative Prefetch Blocker
+  // Forces all DNS lookups to go through the remote proxy tunnel by shutting down client-side DNS pre-resolution
+  try {
+    var dnsMeta = document.createElement('meta');
+    dnsMeta.httpEquiv = 'x-dns-prefetch-control';
+    dnsMeta.content = 'off';
+    if (document.head) {
+      document.head.appendChild(dnsMeta);
+    } else if (document.documentElement) {
+      document.documentElement.appendChild(dnsMeta);
+    }
+
+    function neutralizeDnsLeakLinks(root) {
+      if (!root || !root.querySelectorAll) return;
+      var leakLinks = root.querySelectorAll('link[rel*="dns-prefetch"], link[rel*="preconnect"], link[rel*="prerender"]');
+      for (var i = 0; i < leakLinks.length; i++) {
+        try {
+          leakLinks[i].removeAttribute('href');
+          if (leakLinks[i].parentNode) leakLinks[i].parentNode.removeChild(leakLinks[i]);
+        } catch(err) {}
+      }
+    }
+    neutralizeDnsLeakLinks(document);
+
+    if (window.MutationObserver) {
+      var leakObserver = new MutationObserver(function(mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var added = mutations[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var node = added[j];
+            if (node.nodeType === 1) {
+              if (node.tagName === 'LINK') {
+                var rel = (node.getAttribute('rel') || '').toLowerCase();
+                if (rel.indexOf('dns-prefetch') !== -1 || rel.indexOf('preconnect') !== -1 || rel.indexOf('prerender') !== -1) {
+                  node.removeAttribute('href');
+                  if (node.parentNode) node.parentNode.removeChild(node);
+                }
+              } else {
+                neutralizeDnsLeakLinks(node);
+              }
+            }
+          }
+        }
+      });
+      if (document.documentElement) {
+        leakObserver.observe(document.documentElement, { childList: true, subtree: true });
+      }
+    }
+  } catch(e) {}
+
+  console.log('[CPA] Anti-detection, Anti-DNS-Leak & WebRTC active (mode: ' + '$webrtcMode' + ', ip: ' + '$cleanIp' + ', tz: ' + '$cleanTz' + ')');
+})();
+true;
+        """.trimIndent()
+    }
+
+    fun buildTimezoneScript(timezone: String, language: String): String {
+        return """
+(function() {
+  try {
+    const tz = '$timezone';
+    const lang = '$language';
+
+    const OrigIntl = window.Intl;
+    const OrigDTF = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function(locales, options) {
+      options = options || {};
+      if (!options.timeZone) options.timeZone = tz;
+      return new OrigDTF(lang, options);
+    };
+    Intl.DateTimeFormat.prototype = OrigDTF.prototype;
+
+    Object.defineProperty(navigator, 'language', { get: () => lang, configurable: true });
+    Object.defineProperty(navigator, 'languages', { get: () => [lang, lang.split('-')[0]], configurable: true });
+
+    function calculateTzOffset(ianaTz) {
+      try {
+        var date = new Date();
+        var utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+        var tzDate = new Date(date.toLocaleString('en-US', { timeZone: ianaTz }));
+        return Math.round((utcDate.getTime() - tzDate.getTime()) / 60000);
+      } catch(err) {
+        return 0;
+      }
+    }
+    var targetOffset = calculateTzOffset(tz);
+    Date.prototype.getTimezoneOffset = function() {
+      return targetOffset;
+    };
+  } catch(e) {}
+})();
+true;
+        """.trimIndent()
+    }
+
+    /**
+     * Builds a standalone JavaScript injection script loaded on page start that modifies the
+     * Canvas API (CanvasRenderingContext2D.getImageData, HTMLCanvasElement.toDataURL,
+     * HTMLCanvasElement.toBlob, OffscreenCanvas, and WebGL readPixels) to return randomized noise,
+     * completely defeating Canvas and WebGL fingerprinting algorithms.
+     */
+    fun buildCanvasNoiseScript(): String {
+        return """
+(function() {
+  if (window.__cpaCanvasNoiseInjected) return;
+  window.__cpaCanvasNoiseInjected = true;
+
+  // Helper: inject subtle, randomized noise into an ImageData pixel buffer
+  function addNoiseToImageData(imageData) {
+    try {
+      if (!imageData || !imageData.data) return;
+      var data = imageData.data;
+      var len = data.length;
+      if (len === 0) return;
+
+      // Stride through pixels: perturb a random fraction of non-transparent pixels
+      var stride = len > 40000 ? 16 : 4;
+      for (var i = 0; i < len; i += stride) {
+        // Only modify non-transparent pixels (Alpha > 5) to keep transparent areas clean
+        if (data[i + 3] > 5) {
+          var noise = (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 2));
+          var channel = i % 3; // Alter R, G, or B
+          var val = data[i + channel] + noise;
+          data[i + channel] = val < 0 ? 0 : (val > 255 ? 255 : val);
+        }
+      }
+    } catch(e) {}
+  }
+
+  // 1. Hook CanvasRenderingContext2D.prototype.getImageData & putImageData
+  try {
+    if (window.CanvasRenderingContext2D) {
+      var origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+      var origPutImageData = CanvasRenderingContext2D.prototype.putImageData;
+
+      CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+        var imgData = origGetImageData.apply(this, arguments);
+        addNoiseToImageData(imgData);
+        return imgData;
+      };
+    }
+  } catch(e) {}
+
+  // 2. Hook HTMLCanvasElement.prototype.toDataURL and toBlob
+  try {
+    if (window.HTMLCanvasElement) {
+      var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      var origToBlob = HTMLCanvasElement.prototype.toBlob;
+
+      function perturbCanvasPixels(canvas) {
+        try {
+          if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+          var ctx = null;
+          try { ctx = canvas.getContext('2d'); } catch(err) {}
+
+          if (ctx && typeof origGetImageData === 'function' && typeof origPutImageData === 'function') {
+            // Apply randomized noise to a region of the canvas
+            var sampleW = Math.min(canvas.width, 48);
+            var sampleH = Math.min(canvas.height, 48);
+            var slice = origGetImageData.call(ctx, 0, 0, sampleW, sampleH);
+            var d = slice.data;
+            var modified = false;
+            for (var k = 0; k < d.length; k += 4) {
+              if (d[k + 3] > 5) {
+                var delta = (Math.random() < 0.5 ? 1 : -1);
+                var c = k % 3;
+                d[k + c] = Math.min(255, Math.max(0, d[k + c] + delta));
+                modified = true;
+                if (Math.random() < 0.08) break;
+              }
+            }
+            if (modified) {
+              origPutImageData.call(ctx, slice, 0, 0);
+            }
+          }
+        } catch(e) {}
+      }
+
+      HTMLCanvasElement.prototype.toDataURL = function(type, encoderOptions) {
+        perturbCanvasPixels(this);
+        return origToDataURL.apply(this, arguments);
+      };
+
+      HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+        perturbCanvasPixels(this);
+        return origToBlob.apply(this, arguments);
+      };
+    }
+  } catch(e) {}
+
+  // 3. Hook OffscreenCanvas if available
+  try {
+    if (window.OffscreenCanvas) {
+      if (window.OffscreenCanvasRenderingContext2D) {
+        var origOffscreenGetImageData = OffscreenCanvasRenderingContext2D.prototype.getImageData;
+        OffscreenCanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+          var imgData = origOffscreenGetImageData.apply(this, arguments);
+          addNoiseToImageData(imgData);
+          return imgData;
+        };
+      }
+      var origConvertToBlob = OffscreenCanvas.prototype.convertToBlob;
+      if (origConvertToBlob) {
+        OffscreenCanvas.prototype.convertToBlob = function(options) {
+          try {
+            var ctx = this.getContext('2d');
+            if (ctx && this.width > 0 && this.height > 0) {
+              var w = Math.min(this.width, 32);
+              var h = Math.min(this.height, 32);
+              var s = ctx.getImageData(0, 0, w, h);
+              addNoiseToImageData(s);
+              ctx.putImageData(s, 0, 0);
+            }
+          } catch(e) {}
+          return origConvertToBlob.apply(this, arguments);
+        };
+      }
+    }
+  } catch(e) {}
+
+  // 4. Hook WebGL readPixels to prevent WebGL-based Canvas fingerprinting
+  try {
+    function hookWebGLContext(proto) {
+      if (!proto || !proto.readPixels) return;
+      var origReadPixels = proto.readPixels;
+      proto.readPixels = function(x, y, width, height, format, type, pixels) {
+        origReadPixels.apply(this, arguments);
+        try {
+          if (pixels && pixels.length > 0) {
+            for (var p = 0; p < pixels.length; p += 16) {
+              if (Math.random() < 0.15) {
+                pixels[p] = Math.min(255, Math.max(0, pixels[p] + (Math.random() < 0.5 ? 1 : -1)));
+              }
+            }
+          }
+        } catch(e) {}
+      };
+    }
+    if (window.WebGLRenderingContext) hookWebGLContext(WebGLRenderingContext.prototype);
+    if (window.WebGL2RenderingContext) hookWebGLContext(WebGL2RenderingContext.prototype);
+  } catch(e) {}
+
+  console.log('[CPA Shield] Canvas API randomized noise protection active.');
+})();
+true;
+        """.trimIndent()
+    }
+
+    fun buildSmartFormFillScript(
+        identity: GeneratedIdentity,
+        categories: String = "",
+        clickTexts: List<String> = emptyList(),
+        activeClickText: String? = null
+    ): String {
+        val planJson = TaskCategoryPlanner.buildPlanJson(TaskCategoryPlanner.parseCategories(categories))
+        val clickTextsArray = JSONArray().apply {
+            clickTexts.filter { it.isNotBlank() }.forEach { put(it) }
+        }.toString()
+        val activeTargetJson = if (activeClickText.isNullOrBlank()) "null" else JSONObject.quote(activeClickText)
+
+        val identityJson = JSONObject().apply {
+            put("firstName", identity.firstName)
+            put("lastName", identity.lastName)
+            put("fullName", identity.fullName)
+            put("email", identity.email)
+            put("phone", identity.phone)
+            put("address", identity.address)
+            put("city", identity.city)
+            put("state", identity.state)
+            put("postalCode", identity.postalCode)
+            put("country", identity.country)
+            put("birthDate", identity.birthDate)
+            put("gender", identity.gender)
+            put("cardNumber", identity.cardNumber)
+            put("cardExpiry", identity.cardExpiry)
+            put("cardCvv", identity.cardCvv)
+        }.toString()
+
+        return """
+(function() {
+  window._cpaIdentity = $identityJson;
+  window._cpaCategoryPlan = $planJson;
+  window._cpaClickTexts = $clickTextsArray;
+  window._cpaActiveClickText = $activeTargetJson;
+  window._cpaAnsweredQuestions = window._cpaAnsweredQuestions || {};
+
+  function logCpa(msg) {
+    console.log('[CPA Auto-Pilot] ' + msg);
+  }
+
+  function showFloatingBadge(text) {
+    try {
+      var badge = document.getElementById('cpa-autopilot-badge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'cpa-autopilot-badge';
+        badge.style.position = 'fixed';
+        badge.style.top = '10px';
+        badge.style.right = '10px';
+        badge.style.zIndex = '9999999';
+        badge.style.background = '#0a101d';
+        badge.style.border = '1.5px solid #00f0ff';
+        badge.style.borderRadius = '6px';
+        badge.style.color = '#00f0ff';
+        badge.style.padding = '5px 12px';
+        badge.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+        badge.style.fontSize = '11px';
+        badge.style.fontWeight = 'bold';
+        badge.style.boxShadow = '0 4px 14px rgba(0,240,255,0.3)';
+        badge.style.pointerEvents = 'none';
+        badge.style.maxWidth = '280px';
+        badge.style.whiteSpace = 'nowrap';
+        badge.style.overflow = 'hidden';
+        badge.style.textOverflow = 'ellipsis';
+        badge.style.transition = 'all 0.3s ease';
+        document.body.appendChild(badge);
+      }
+      badge.textContent = text;
+    } catch(e) {}
+  }
+
+  function setNativeValue(element, value) {
+    if (!element || value === undefined || value === null) return;
+    try {
+      var lastValue = element.value;
+      var prototype = element.tagName === 'INPUT' ? window.HTMLInputElement.prototype :
+                      element.tagName === 'SELECT' ? window.HTMLSelectElement.prototype :
+                      window.HTMLTextAreaElement.prototype;
+      var setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter) {
+        setter.call(element, value);
+      } else {
+        element.value = value;
+      }
+      // React 16+ input tracker update
+      var tracker = element._valueTracker;
+      if (tracker) {
+        tracker.setValue(lastValue);
+      }
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      element.dispatchEvent(new Event('blur', { bubbles: true }));
+    } catch(err) {
+      element.value = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  function triggerClick(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch(e) {}
+
+    var opts = { bubbles: true, cancelable: true, view: window };
+    el.dispatchEvent(new MouseEvent('mouseenter', opts));
+    el.dispatchEvent(new MouseEvent('mouseover', opts));
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.focus();
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+    if (typeof el.click === 'function') {
+      el.click();
+    }
+  }
+
+  function matchField(el) {
+    var raw = ((el.name || '') + ' ' + (el.id || '') + ' ' + (el.placeholder || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.className || '')).toLowerCase();
+    var type = (el.type || '').toLowerCase();
+
+    if (type === 'email' || raw.match(/email|e-mail|correo|courriel/)) return 'email';
+    if (raw.match(/areacode|area.?code|phone.?1|tel.?1|ph.?1/)) return 'phoneArea';
+    if (raw.match(/prefix|phone.?2|tel.?2|ph.?2/)) return 'phonePrefix';
+    if (raw.match(/line.?num|phone.?3|tel.?3|ph.?3/)) return 'phoneLine';
+    if (type === 'tel' || raw.match(/phone|tel|mobile|cel|movil|telephone|contact/)) return 'phone';
+    if (raw.match(/dob.?month|birth.?month|month.?of.?birth/)) return 'dobMonth';
+    if (raw.match(/dob.?day|birth.?day|day.?of.?birth/)) return 'dobDay';
+    if (raw.match(/dob.?year|birth.?year|year.?of.?birth/)) return 'dobYear';
+    if (raw.match(/first.?name|fname|given.?name|prenom|vorname/)) return 'firstName';
+    if (raw.match(/last.?name|lname|surname|family.?name|nom|nachname/)) return 'lastName';
+    if (raw.match(/full.?name|your.?name|nombre.?completo|nom.?complet/)) return 'fullName';
+    if (raw.match(/zip|postal|postcode|plz|cap|pincode/)) return 'postalCode';
+    if (raw.match(/address|addr|street|rue|strasse|calle|via|direccion/)) return 'address';
+    if (raw.match(/city|ville|stadt|ciudad|citta|town/)) return 'city';
+    if (raw.match(/state|province|region|estado|departamento/)) return 'state';
+    if (raw.match(/country|pays|land|pais/)) return 'country';
+    if (raw.match(/birth|dob|birthday|date.?of.?birth/)) return 'birthDate';
+    if (raw.match(/gender|sex|sexe/)) return 'gender';
+    if (raw.match(/card.?number|cardnum|cc.?num|numero.?carte/)) return 'cardNumber';
+    if (raw.match(/expiry|expiration|exp.?date|mm.?yy|valid/)) return 'cardExpiry';
+    if (raw.match(/cvv|cvc|cvn|security.?code/)) return 'cardCvv';
+    return null;
+  }
+
+  // --- Intelligent Survey Understanding Engine ---
+
+  function getQuestionContext(element) {
+    if (!element) return '';
+    var curr = element.parentElement;
+    var depth = 0;
+    while (curr && depth < 6) {
+      // Look for question headers inside container
+      var headers = curr.querySelectorAll('h1, h2, h3, h4, h5, legend, [class*="question"], [class*="prompt"], [class*="title"], [class*="survey-header"], [id*="question"]');
+      for (var h = 0; h < headers.length; h++) {
+        var hEl = headers[h];
+        if (hEl !== element && !element.contains(hEl)) {
+          var txt = (hEl.innerText || hEl.textContent || '').trim().toLowerCase();
+          if (txt.length > 3) return txt;
+        }
+      }
+      // Look for preceding sibling with text
+      var prev = curr.previousElementSibling;
+      if (prev) {
+        var ptxt = (prev.innerText || prev.textContent || '').trim().toLowerCase();
+        if (ptxt.includes('?') || ptxt.includes('how') || ptxt.includes('what') || ptxt.includes('are you') || ptxt.includes('do you') || ptxt.includes('select') || ptxt.includes('choose')) {
+          return ptxt;
+        }
+      }
+      curr = curr.parentElement;
+      depth++;
+    }
+    return '';
+  }
+
+  function pickBestSurveyOption(questionText, optionsList, ident) {
+    if (!optionsList || optionsList.length === 0) return null;
+    var q = (questionText || '').toLowerCase();
+
+    function matches(opt, regex) {
+      var str = ((opt.text || '') + ' ' + (opt.value || '')).toLowerCase();
+      return regex.test(str);
+    }
+
+    // 1. Age & Majority Verification (CRITICAL for qualification)
+    if (q.match(/age|18|years.?old|how.?old|birth|dob/)) {
+      var adultOpt = optionsList.find(function(o) { return matches(o, /\b(yes|18\+|18-24|25-34|35-44|over 18|older)\b/); });
+      if (adultOpt) return adultOpt;
+      var nonMinor = optionsList.find(function(o) { return !matches(o, /\b(no|under 18|<18|17|minor)\b/); });
+      if (nonMinor) return nonMinor;
+    }
+
+    // 2. US / Residency / Location Qualification
+    if (q.match(/us.?resident|united.?states|citizen|live in the us|country|residence/)) {
+      var usOpt = optionsList.find(function(o) { return matches(o, /\b(yes|united states|usa|us)\b/); });
+      if (usOpt) return usOpt;
+      var nonNo = optionsList.find(function(o) { return !matches(o, /\bno\b/); });
+      if (nonNo) return nonNo;
+    }
+
+    // 3. Gender / Sex Matching
+    if (q.match(/gender|sex|are you male|man or woman/)) {
+      var isFemale = ident && ((ident.gender && ident.gender.toLowerCase().includes('female')) || (ident.firstName && /^(mary|patricia|jennifer|linda|elizabeth|barbara|susan|jessica|sarah|karen|nancy|lisa|betty|margaret|sandra|ashley|kimberly|emily|donna|michelle|carol|amanda|melissa|deborah|stephanie|rebecca|sharon|laura|cynthia|kathleen|amy|shirley|angela|helen|anna|brenda|pamela|nicole|emma|samantha|katherine|christine|debra|rachel|catherine|carolyn|janet|ruth|maria|heather|diane|virginia|julie|joyce|victoria|olivia|kelly|christina|lauren|joan|evelyn|judith|megan|cheryl|andrea|hannah|martha|jacqueline|frances|gloria|ann|teresa|kathryn|sara|janice|jean|alice|madison|doris|abigail|julia|judy|grace|denise|amber|marilyn|beverly|danielle|theresa|sophia|marie|diana|brittany|natalie|isabella|charlotte|rose|kayla|alexis)/i.test(ident.firstName)));
+      if (isFemale) {
+        var femOpt = optionsList.find(function(o) { return matches(o, /\b(female|woman|f|femme)\b/); });
+        if (femOpt) return femOpt;
+      } else {
+        var maleOpt = optionsList.find(function(o) { return matches(o, /\b(male|man|m|homme)\b/); });
+        if (maleOpt) return maleOpt;
+      }
+      return optionsList[0];
+    }
+
+    // 4. Shopping, Online Habits, Smartphone, Device
+    if (q.match(/shop|online|internet|smartphone|mobile|device|phone|buy|store|amazon|walmart/)) {
+      var frequentOpt = optionsList.find(function(o) { return matches(o, /\b(yes|daily|weekly|often|frequently|regularly|always|iphone|android|yes, i do)\b/); });
+      if (frequentOpt) return frequentOpt;
+    }
+
+    // 5. Employment & Occupation
+    if (q.match(/employ|job|work|occupation|career/)) {
+      var empOpt = optionsList.find(function(o) { return matches(o, /\b(employed|full.?time|yes|professional)\b/); });
+      if (empOpt) return empOpt;
+    }
+
+    // 6. Household Income (pick middle/upper-middle tier)
+    if (q.match(/income|earn|salary|household/)) {
+      var midIncome = optionsList.find(function(o) { return matches(o, /(50|60|75|80|100)k?|\$50|\$75/); });
+      if (midIncome) return midIncome;
+      if (optionsList.length >= 3) return optionsList[Math.floor(optionsList.length / 2)];
+    }
+
+    // 7. Homeownership
+    if (q.match(/own or rent|homeowner|housing/)) {
+      var ownOpt = optionsList.find(function(o) { return matches(o, /\b(own|homeowner|house)\b/); });
+      if (ownOpt) return ownOpt;
+    }
+
+    // 8. Co-Reg Sponsor Deals / Upsells / Paid Offers / Insurance / Credit Cards
+    // In co-reg walls, to proceed without payment, click "No thanks", "Skip", "Not interested"
+    if (q.match(/special offer|sponsor|deal|partner|free trial|sign up for|subscription|quote|insurance|solar|card offer/)) {
+      var passOpt = optionsList.find(function(o) { return matches(o, /\b(no thanks|no, thanks|no|skip|pass|not interested|continue without|no thank you|not at this time)\b/); });
+      if (passOpt) return passOpt;
+    }
+
+    // 9. Ratings / Scales (e.g. 1 to 5 or 1 to 10)
+    var numOptions = optionsList.filter(function(o) { return /^\d+$/.test((o.text || '').trim()); });
+    if (numOptions.length >= 4) {
+      return numOptions[numOptions.length - 2] || numOptions[numOptions.length - 1];
+    }
+
+    // 10. Binary Yes / No (Qualification questions almost always require "Yes")
+    var yesOpt = optionsList.find(function(o) { return matches(o, /^\s*(yes|oui|si|agree|correct|definitely|absolutely)\b/); });
+    var noOpt = optionsList.find(function(o) { return matches(o, /^\s*(no|non|disagree)\b/); });
+    if (yesOpt && noOpt) {
+      return yesOpt;
+    }
+
+    // 11. Positive sentiment matching
+    var positiveOpt = optionsList.find(function(o) { return matches(o, /\b(yes|interested|agree|claim|participate|confirm|enter|proceed)\b/); });
+    if (positiveOpt) return positiveOpt;
+
+    // 12. Skip placeholders like "Select...", "Choose one..."
+    var nonPlaceholder = optionsList.find(function(o) { return !matches(o, /\b(select|choose|pick|--|none)\b/); });
+    if (nonPlaceholder) return nonPlaceholder;
+
+    return optionsList[0];
+  }
+
+  // --- Handlers for Different Survey Types ---
+
+  function handleButtonSurveys(ident) {
+    // Find all choice buttons / cards inside survey containers or option lists
+    var choiceSelectors = [
+      'button:not([type=submit]):not([id*="submit"]):not([class*="submit"]):not([class*="continue"])',
+      '[role="button"]:not([class*="submit"]):not([class*="continue"])',
+      '.survey-btn', '.quiz-option', '.answer', '.choice', '.option-card', '.btn-option',
+      '[data-answer]', '[data-choice]', '[data-value]', '.poll-option', '.survey-tile',
+      'a.btn:not([class*="submit"]):not([class*="continue"])'
+    ];
+
+    var allButtons = Array.from(document.querySelectorAll(choiceSelectors.join(',')));
+    if (allButtons.length === 0) return false;
+
+    // Group buttons by parent container (representing a single question)
+    var parentMap = new Map();
+    for (var i = 0; i < allButtons.length; i++) {
+      var btn = allButtons[i];
+      if (btn.disabled || btn.offsetParent === null) continue;
+
+      var parent = btn.closest('.survey-step, .question-container, .question, .quiz-step, .step, fieldset, .answers, .options, form') || btn.parentElement;
+      if (!parentMap.has(parent)) {
+        parentMap.set(parent, []);
+      }
+      parentMap.get(parent).push(btn);
+    }
+
+    var now = Date.now();
+    var acted = false;
+
+    parentMap.forEach(function(buttons, parent) {
+      if (acted || buttons.length < 2) return;
+
+      // Check if any button in this group is already selected/active
+      var isAnyActive = buttons.some(function(b) {
+        return b.classList.contains('active') || b.classList.contains('selected') || b.getAttribute('aria-selected') === 'true';
+      });
+      if (isAnyActive) return;
+
+      var qText = getQuestionContext(parent) || getQuestionContext(buttons[0]);
+      var qKey = (qText || '') + '_' + buttons.length;
+
+      // Anti-loop protection: don't click the exact same question group within 2.5 seconds
+      if (window._cpaAnsweredQuestions[qKey] && (now - window._cpaAnsweredQuestions[qKey] < 2500)) {
+        return;
+      }
+
+      var optionsList = buttons.map(function(b) {
+        return {
+          el: b,
+          text: (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim(),
+          value: b.getAttribute('data-value') || b.getAttribute('value') || ''
+        };
+      });
+
+      var best = pickBestSurveyOption(qText, optionsList, ident);
+      if (best && best.el) {
+        window._cpaAnsweredQuestions[qKey] = now;
+        var chosenText = best.text || best.value || 'Selected';
+        logCpa('Intelligent Survey Button Clicked: "' + chosenText + '" for question: "' + qText.slice(0, 40) + '..."');
+        showFloatingBadge('⚡ Survey: ' + chosenText.slice(0, 16));
+        triggerClick(best.el);
+        acted = true;
+      }
+    });
+
+    return acted;
+  }
+
+  function handleRadioSurveys(ident) {
+    var radios = Array.from(document.querySelectorAll('input[type=radio]'));
+    var groups = {};
+    for (var i = 0; i < radios.length; i++) {
+      var r = radios[i];
+      if (r.disabled || r.offsetParent === null) continue;
+      var name = r.name || ('radio_group_' + i);
+      if (!groups[name]) groups[name] = [];
+      groups[name].push(r);
+    }
+
+    var answeredCount = 0;
+    for (var g in groups) {
+      var groupRadios = groups[g];
+      var anyChecked = groupRadios.some(function(r) { return r.checked; });
+      if (!anyChecked && groupRadios.length > 0) {
+        var qText = getQuestionContext(groupRadios[0]);
+        var optionsList = groupRadios.map(function(r) {
+          var labelText = r.parentElement ? (r.parentElement.innerText || r.parentElement.textContent || '') : '';
+          return {
+            el: r,
+            text: labelText.trim(),
+            value: r.value || ''
+          };
+        });
+
+        var best = pickBestSurveyOption(qText, optionsList, ident);
+        if (best && best.el) {
+          best.el.checked = true;
+          best.el.dispatchEvent(new Event('change', { bubbles: true }));
+          best.el.dispatchEvent(new Event('click', { bubbles: true }));
+          logCpa('Survey Radio Selected: "' + (best.text || best.value) + '"');
+          showFloatingBadge('⚡ Radio: ' + (best.text || best.value).slice(0, 16));
+          answeredCount++;
+        }
+      }
+    }
+    return answeredCount;
+  }
+
+  function handleSelectSurveys(ident) {
+    var selects = Array.from(document.querySelectorAll('select'));
+    var selectAnswered = 0;
+
+    for (var i = 0; i < selects.length; i++) {
+      var sel = selects[i];
+      if (sel.disabled || sel.offsetParent === null) continue;
+      if (sel.selectedIndex > 0 && sel.value && sel.value.trim().length > 0) continue;
+
+      var qText = getQuestionContext(sel) || sel.name || sel.id || '';
+      var options = Array.from(sel.options);
+      if (options.length <= 1) continue;
+
+      var optionsList = options.map(function(opt, idx) {
+        return {
+          el: opt,
+          index: idx,
+          text: (opt.text || '').trim(),
+          value: opt.value || ''
+        };
+      });
+
+      var best = pickBestSurveyOption(qText, optionsList, ident);
+      if (best && best.index !== undefined) {
+        sel.selectedIndex = best.index;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        logCpa('Survey Dropdown Selected: "' + best.text + '"');
+        showFloatingBadge('⚡ Select: ' + best.text.slice(0, 16));
+        selectAnswered++;
+      }
+    }
+    return selectAnswered;
+  }
+
+  function handleCheckboxes() {
+    var checkboxes = document.querySelectorAll('input[type=checkbox]');
+    var checkedCount = 0;
+    for (var i = 0; i < checkboxes.length; i++) {
+      var cb = checkboxes[i];
+      if (cb.checked || cb.disabled || cb.offsetParent === null) continue;
+
+      var info = ((cb.name || '') + ' ' + (cb.id || '') + ' ' + (cb.className || '') + ' ' + (cb.getAttribute('aria-label') || '')).toLowerCase();
+      var parentText = (cb.parentElement ? cb.parentElement.innerText : '').toLowerCase();
+      var isTermsOrRequired = cb.required || 
+        info.match(/agree|terms|condition|privacy|policy|optin|subscribe|age|18|consent|accept|rule|confirm/) ||
+        parentText.match(/agree|terms|condition|privacy|policy|18 years|opt-in|subscribe|rules|i accept|i agree/);
+
+      if (isTermsOrRequired) {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.dispatchEvent(new Event('click', { bubbles: true }));
+        checkedCount++;
+      }
+    }
+    return checkedCount;
+  }
+
+  function fillInputFields() {
+    var ident = window._cpaIdentity;
+    if (!ident) return 0;
+
+    var inputs = Array.from(document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), select, textarea'));
+    var filled = 0;
+
+    var phoneDigits = (ident.phone || '2125550199').replace(/\D/g, '');
+    var dobParts = (ident.birthDate || '1995-06-15').split(/[-/]/);
+    var dobYear = dobParts[0] && dobParts[0].length === 4 ? dobParts[0] : (dobParts[2] || '1995');
+    var dobMonth = dobParts[0].length === 4 ? (dobParts[1] || '06') : (dobParts[0] || '06');
+    var dobDay = dobParts[0].length === 4 ? (dobParts[2] || '15') : (dobParts[1] || '15');
+
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      if (el.value && el.value.trim().length > 0 && el.tagName !== 'SELECT') {
+        continue;
+      }
+
+      var field = matchField(el);
+      var value = null;
+
+      if (field === 'firstName') value = ident.firstName;
+      else if (field === 'lastName') value = ident.lastName;
+      else if (field === 'fullName') value = ident.fullName;
+      else if (field === 'email') value = ident.email;
+      else if (field === 'phone') value = ident.phone;
+      else if (field === 'phoneArea') value = phoneDigits.slice(0, 3);
+      else if (field === 'phonePrefix') value = phoneDigits.slice(3, 6);
+      else if (field === 'phoneLine') value = phoneDigits.slice(6, 10);
+      else if (field === 'dobMonth') value = dobMonth;
+      else if (field === 'dobDay') value = dobDay;
+      else if (field === 'dobYear') value = dobYear;
+      else if (field === 'address') value = ident.address;
+      else if (field === 'city') value = ident.city;
+      else if (field === 'state') value = ident.state;
+      else if (field === 'postalCode') value = ident.postalCode;
+      else if (field === 'country') value = ident.country;
+      else if (field === 'birthDate') value = ident.birthDate;
+      else if (field === 'cardNumber' && ident.cardNumber) value = ident.cardNumber.replace(/\s/g, '');
+      else if (field === 'cardExpiry' && ident.cardExpiry) value = ident.cardExpiry;
+      else if (field === 'cardCvv' && ident.cardCvv) value = ident.cardCvv;
+
+      // Smart Fallback for single-field landing pages (e.g. "Enter your email to claim $100")
+      if (!value && inputs.length === 1 && (el.type === 'text' || el.type === 'email' || !el.type)) {
+        value = ident.email;
+      }
+
+      if (value && el.tagName === 'SELECT') {
+        var opts = el.options;
+        for (var j = 0; j < opts.length; j++) {
+          var optText = opts[j].text.toLowerCase();
+          var optVal = opts[j].value.toLowerCase();
+          if (optText.includes(value.toLowerCase()) || optVal.includes(value.toLowerCase().slice(0, 3))) {
+            el.selectedIndex = j;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            filled++;
+            break;
+          }
+        }
+      } else if (value) {
+        setNativeValue(el, value);
+        filled++;
+      }
+    }
+    return filled;
+  }
+
+  function findAndClickSubmit() {
+    var buttons = Array.from(document.querySelectorAll('button, input[type=submit], input[type=button], a[role=button], [class*="btn"], [class*="submit"], [class*="cta"], [id*="submit"], [id*="continue"], [class*="continue"], [class*="next"]'));
+    var keywords = ['continue', 'next', 'submit', 'claim', 'enter', 'get started', 'proceed', 'start', 'join', 'sign up', 'agree', 'yes', 'participate', 'finish', 'go', 'win', 'reward', 'next question', 'claim reward', 'confirm'];
+
+    for (var k = 0; k < buttons.length; k++) {
+      var btn = buttons[k];
+      if (btn.disabled || btn.offsetParent === null) continue;
+
+      var txt = ((btn.textContent || '') + ' ' + (btn.value || '') + ' ' + (btn.getAttribute('aria-label') || '') + ' ' + (btn.id || '') + ' ' + (btn.className || '')).toLowerCase().trim();
+      if (keywords.some(function(kw) { return txt.includes(kw); })) {
+        logCpa('Auto-clicking action button: "' + (btn.textContent || btn.value || '').trim() + '"');
+        showFloatingBadge('⚡ Action: ' + (btn.textContent || btn.value || 'Continue').trim().slice(0, 16) + '...');
+        triggerClick(btn);
+        return true;
+      }
+    }
+
+    // Fallback: Submit form if available
+    var forms = document.querySelectorAll('form');
+    if (forms.length > 0) {
+      for (var f = 0; f < forms.length; f++) {
+        var submitBtn = forms[f].querySelector('[type=submit], button');
+        if (submitBtn) {
+          triggerClick(submitBtn);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function handleSkipUpsells() {
+    // 1. Close intrusive modals or promotional popups if blocking
+    try {
+      var closeBtns = document.querySelectorAll('.modal-close, .popup-close, [aria-label="Close"], .close-button, .btn-close, .dialog-close');
+      for (var c = 0; c < closeBtns.length; c++) {
+        if (closeBtns[c].offsetParent !== null) {
+          triggerClick(closeBtns[c]);
+          return true;
+        }
+      }
+    } catch(e) {}
+
+    // 2. Click skip/decline upsell links
+    var skipKeywords = ['no thanks', 'skip', 'not interested', 'no thank you', 'skip this offer', 'continue without offer', 'decline', 'pass', 'maybe later', 'no, thanks', 'no, thank you', 'skip offer', 'i do not want this', 'continue to final step', 'skip deal', 'no, keep current'];
+    var clickableElements = Array.from(document.querySelectorAll('a, button, input[type=button], span[role=button], div[role=button]'));
+    for (var i = 0; i < clickableElements.length; i++) {
+      var el = clickableElements[i];
+      if (el.offsetParent === null) continue;
+      var text = (el.innerText || el.textContent || el.getAttribute('aria-label') || el.value || '').toLowerCase().trim();
+      if (skipKeywords.some(function(kw) { return text === kw || text.indexOf(kw) !== -1; })) {
+        logCpa('Smart Upsell Skipped: "' + text.slice(0, 30) + '"');
+        showFloatingBadge('⏭️ Skipped Offer');
+        triggerClick(el);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function handleSignUpFields(ident) {
+    var pwInputs = Array.from(document.querySelectorAll('input[type=password]'));
+    var filledPw = 0;
+    if (pwInputs.length > 0) {
+      var generatedPassword = 'CpaPass@' + (ident.firstName || 'User') + '2026!';
+      pwInputs.forEach(function(pw) {
+        if (!pw.value || pw.value.trim().length === 0) {
+          setNativeValue(pw, generatedPassword);
+          filledPw++;
+        }
+      });
+      if (filledPw > 0) {
+        logCpa('Sign Up: Generated and filled secure password for ' + filledPw + ' fields');
+        showFloatingBadge('👤 Sign Up Password Filled');
+      }
+    }
+    return filledPw;
+  }
+
+  function handleOfferClick() {
+    if (window._cpaOfferClicked) return false;
+    var targetList = [];
+    if (window._cpaActiveClickText && typeof window._cpaActiveClickText === 'string' && window._cpaActiveClickText.trim().length > 0) {
+      targetList.push(window._cpaActiveClickText.trim().toLowerCase());
+    }
+    if (window._cpaClickTexts && Array.isArray(window._cpaClickTexts)) {
+      for (var t = 0; t < window._cpaClickTexts.length; t++) {
+        var str = (window._cpaClickTexts[t] || '').trim().toLowerCase();
+        if (str && targetList.indexOf(str) === -1) {
+          targetList.push(str);
+        }
+      }
+    }
+    // Fallback search targets if list is empty
+    if (targetList.length === 0) {
+      targetList = ['walmart', 'gift card', '$1000', 'claim reward', 'continue to offer'];
+    }
+
+    function checkMatch(elementText, target) {
+      if (!elementText || !target) return false;
+      if (elementText.indexOf(target) !== -1) return true;
+      var cleanEl = elementText.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      var cleanTarget = target.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (cleanEl.indexOf(cleanTarget) !== -1) return true;
+      var tokens = cleanTarget.split(' ').filter(function(w) { return w.length >= 3; });
+      if (tokens.length >= 2) {
+        var allIn = tokens.every(function(tk) { return cleanEl.indexOf(tk) !== -1; });
+        if (allIn) return true;
+      }
+      return false;
+    }
+
+    // Scan interactive and semantic elements: links, buttons, headers, cards
+    var candidates = Array.from(document.querySelectorAll('a, button, [role=button], h1, h2, h3, h4, h5, p, span, div, strong, b, [class*="offer"], [class*="cta"], [class*="btn"]'));
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.offsetParent === null) continue; // Skip hidden elements
+
+      var txt = ((el.innerText || el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.title || '')).toLowerCase().trim();
+      if (!txt || txt.length < 2) continue;
+
+      for (var k = 0; k < targetList.length; k++) {
+        var targetWord = targetList[k];
+        if (checkMatch(txt, targetWord)) {
+          window._cpaOfferClicked = true;
+          logCpa('🎯 [PRIORITY #1 - OFFER CLICK] Found matching offer text: "' + targetWord + '"');
+          showFloatingBadge('🎯 Clicked Offer: ' + targetWord.slice(0, 16) + '...');
+
+          var clickable = el.closest('a, button, [role=button]') || el;
+          var href = clickable.href || (clickable.getAttribute ? clickable.getAttribute('href') : null);
+
+          // If link opens in new tab (target="_blank"), modify to load in place or notify
+          if (clickable.tagName === 'A' && clickable.target === '_blank') {
+            clickable.target = '_self';
+          }
+
+          if (window.AndroidBridge && window.AndroidBridge.onOfferClicked) {
+            try {
+              window.AndroidBridge.onOfferClicked(targetWord, href || window.location.href);
+            } catch(e) {}
+          }
+
+          triggerClick(clickable);
+
+          // Force redirect if href is an external offer link and didn't fire
+          if (href && href.startsWith('http') && href !== window.location.href) {
+            setTimeout(function() {
+              window.location.href = href;
+            }, 500);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // --- Main Execution Cycle ---
+
+  window._cpaExecuteCycle = function() {
+    var ident = window._cpaIdentity;
+    if (!ident) return;
+
+    var plan = window._cpaCategoryPlan || [];
+    var hasOfferClickPlan = plan.some(function(p) { return p.id === 'offer_click'; }) || (window._cpaClickTexts && window._cpaClickTexts.length > 0);
+    var hasSkipPlan = plan.some(function(p) { return p.id === 'skip_upsells'; });
+    var hasSignUpPlan = plan.some(function(p) { return p.id === 'sign_up'; });
+    var hasSurveyPlan = plan.some(function(p) { return p.id === 'survey_quiz'; });
+
+    // 0. PRIORITY #1: Offer Click always runs first to transition from landing page to offer site!
+    if (hasOfferClickPlan && !window._cpaOfferClicked) {
+      if (handleOfferClick()) {
+        logCpa('Offer Click executed. Holding cycle for destination offer site to load.');
+        return;
+      }
+    }
+
+    // 0.5. Handle Skip Upsells if present on page
+    if (hasSkipPlan || plan.length === 0) {
+      if (handleSkipUpsells()) return;
+    }
+
+    // 1. Fill Text / Contact Inputs
+    var filled = fillInputFields();
+
+    // 2. Handle Password / Sign Up credentials if required
+    if (hasSignUpPlan || document.querySelector('input[type=password]')) {
+      filled += handleSignUpFields(ident);
+    }
+
+    // 3. Check Terms / Consent Checkboxes
+    var checked = handleCheckboxes();
+
+    // 4. Handle Radio Button Surveys
+    var radios = handleRadioSurveys(ident);
+
+    // 5. Handle Dropdown Surveys
+    var selects = handleSelectSurveys(ident);
+
+    // 6. Handle Button / Card / Tile Surveys
+    var buttonSurveyHandled = handleButtonSurveys(ident);
+
+    if (filled > 0 || checked > 0 || radios > 0 || selects > 0) {
+      logCpa('Cycle update: filled ' + filled + ', checked ' + checked + ', radios ' + radios + ', selects ' + selects);
+      // Brief human delay before clicking Next/Submit
+      setTimeout(function() {
+        findAndClickSubmit();
+      }, 700);
+    } else if (!buttonSurveyHandled) {
+      // Check if all visible fields are filled and a submit button is ready
+      var visibleInputs = Array.from(document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio])'));
+      var allFilled = visibleInputs.length > 0 && visibleInputs.every(function(i) { return i.value && i.value.trim().length > 0; });
+      if (allFilled) {
+        findAndClickSubmit();
+      }
+    }
+  };
+
+  // Run cycle immediately
+  window._cpaExecuteCycle();
+
+  // Install continuous observer and interval if not already running
+  if (!window._cpaObserverInstalled) {
+    window._cpaObserverInstalled = true;
+    showFloatingBadge('⚡ Smart Auto-Pilot: Active');
+
+    setInterval(function() {
+      if (typeof window._cpaExecuteCycle === 'function') {
+        window._cpaExecuteCycle();
+      }
+    }, 1100);
+
+    var obs = new MutationObserver(function() {
+      if (typeof window._cpaExecuteCycle === 'function') {
+        window._cpaExecuteCycle();
+      }
+    });
+
+    if (document.body) {
+      obs.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+})();
+true;
+        """.trimIndent()
+    }
+
+    fun buildHumanBehaviorScript(): String {
+        return """
+(function() {
+  function randomScroll() {
+    var scrollY = Math.random() * 180 - 90;
+    window.scrollBy({ top: scrollY, behavior: 'smooth' });
+    setTimeout(randomScroll, 2500 + Math.random() * 4000);
+  }
+  setTimeout(randomScroll, 1500);
+  console.log('[CPA] Human scroll behavior running');
+})();
+true;
+        """.trimIndent()
+    }
+
+    fun buildCompletionDetectorScript(keywords: List<String>): String {
+        val kwArray = keywords.joinToString(",") { "'${it.trim().lowercase().replace("'", "\\'")}'" }
+        return """
+(function() {
+  var keywords = [$kwArray];
+  var completionReported = false;
+
+  function checkCompletion() {
+    if (completionReported) return;
+    var bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+    var title = document.title.toLowerCase();
+
+    for (var i = 0; i < keywords.length; i++) {
+      var kw = keywords[i];
+      if (kw && (bodyText.includes(kw) || title.includes(kw))) {
+        completionReported = true;
+        console.log('[CPA] Completion keyword detected: ' + kw);
+        if (window.AndroidBridge && window.AndroidBridge.onTaskCompleted) {
+          window.AndroidBridge.onTaskCompleted(kw, window.location.href);
+        }
+        break;
+      }
+    }
+  }
+
+  setTimeout(checkCompletion, 1500);
+  window.addEventListener('load', function() { setTimeout(checkCompletion, 1000); });
+  var obs = new MutationObserver(function() { setTimeout(checkCompletion, 500); });
+  if (document.body) {
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+})();
+true;
+        """.trimIndent()
+    }
+
+    fun buildOfferClickScript(clickTexts: List<String>, activeTargetText: String? = null): String {
+        val clickTextsArray = JSONArray().apply {
+            clickTexts.filter { it.isNotBlank() }.forEach { put(it) }
+        }.toString()
+        val activeTargetJson = if (activeTargetText.isNullOrBlank()) "null" else JSONObject.quote(activeTargetText)
+
+        return """
+(function() {
+  var targetList = [];
+  var active = $activeTargetJson;
+  var allTexts = $clickTextsArray;
+  if (active && active.trim().length > 0) targetList.push(active.trim().toLowerCase());
+  for (var i = 0; i < allTexts.length; i++) {
+    var s = (allTexts[i] || '').trim().toLowerCase();
+    if (s && targetList.indexOf(s) === -1) targetList.push(s);
+  }
+  if (targetList.length === 0) targetList = ['walmart', 'gift card', '$1000', 'claim reward'];
+
+  function clickTarget() {
+    var candidates = Array.from(document.querySelectorAll('a, button, [role=button], h1, h2, h3, h4, h5, p, span, div, strong, b'));
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.offsetParent === null) continue;
+      var txt = ((el.innerText || el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase().trim();
+      if (!txt || txt.length < 2) continue;
+
+      for (var k = 0; k < targetList.length; k++) {
+        var kw = targetList[k];
+        if (txt.includes(kw)) {
+          console.log('[CPA] Offer link found and clicked: ' + kw);
+          var clickable = el.closest('a, button, [role=button]') || el;
+          var href = clickable.href || (clickable.getAttribute ? clickable.getAttribute('href') : null);
+          if (clickable.tagName === 'A' && clickable.target === '_blank') clickable.target = '_self';
+          if (window.AndroidBridge && window.AndroidBridge.onOfferClicked) {
+            window.AndroidBridge.onOfferClicked(kw, href || window.location.href);
+          }
+          clickable.click();
+          if (href && href.startsWith('http') && href !== window.location.href) {
+            setTimeout(function() { window.location.href = href; }, 600);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  setTimeout(clickTarget, 800);
+  window.addEventListener('load', function() { setTimeout(clickTarget, 600); });
+})();
+true;
+        """.trimIndent()
+    }
+}
+
