@@ -684,6 +684,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setActiveTabId(tabId: String) {
+        _automationState.update { it.copy(activeTabId = tabId) }
+    }
+
+    fun onPageAnalyzed(reportJson: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            val report = TaskCategoryPlanner.parseAnalysisReport(reportJson)
+            _automationState.update { state ->
+                val currentCats = TaskCategoryPlanner.parseCategories(state.activeTaskCategories)
+                val updatedCats = if (report.detectedCategory.isNotBlank() && report.detectedCategory != "general") {
+                    val reordered = (listOf(report.detectedCategory) + currentCats.filter { !it.equals(report.detectedCategory, ignoreCase = true) }).distinct()
+                    reordered.joinToString(", ")
+                } else {
+                    state.activeTaskCategories
+                }
+
+                state.copy(
+                    detectedPageCategory = report.detectedCategory,
+                    detectedCategoryAr = report.detectedCategoryAr,
+                    pageAnalysisSummary = report.summary,
+                    activeTaskCategories = updatedCats,
+                    lastAnalysisTime = System.currentTimeMillis()
+                )
+            }
+
+            addLog(
+                "info",
+                "🧠 [تحليل ذكي]: تم كشف مرحلة '${report.detectedCategoryAr}' (${report.detectedCategory}) - الثقة: ${report.confidence}% | الخطوة: ${report.recommendedNextAction}",
+                _automationState.value.currentTaskName
+            )
+
+            // If confirmation/thank you detected, notify completion!
+            if (report.isConfirmationPage && _automationState.value.isRunning) {
+                completionReceivedForCurrentTask = true
+                addLog("success", "🏆 [تأكيد التحويل]: تم رصد صفحة الشكر والإكمال بنجاح!", _automationState.value.currentTaskName)
+            }
+        }
+    }
+
     fun testOfferClickInBrowser(text: String, landingUrl: String = "https://gdfqo.blogspot.com") {
         _automationState.update {
             it.copy(

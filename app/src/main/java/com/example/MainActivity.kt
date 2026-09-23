@@ -435,6 +435,8 @@ fun CpaAutomatorApp(vm: AppViewModel = viewModel()) {
                         onClearBrowserCommand = { vm.clearBrowserCommand() },
                         onNotifyCompletion = { kw, url -> vm.notifyTaskCompleted(kw, url) },
                         onOfferClicked = { txt, url -> vm.onOfferClicked(txt, url) },
+                        onPageAnalyzed = { reportJson -> vm.onPageAnalyzed(reportJson) },
+                        onActiveTabChanged = { tabId -> vm.setActiveTabId(tabId) },
                         onUpdateWebRtcMode = { vm.setWebRtcMode(it) }
                     )
                 }

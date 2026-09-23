@@ -135,6 +135,51 @@ object TaskCategoryPlanner {
             matchingKeywords = listOf("terms", "agree", "checkbox", "18", "شروط", "موافقة")
         ),
         CategoryDefinition(
+            id = "sweepstakes",
+            labelEn = "Sweepstakes Claim",
+            labelAr = "مسابقات وجوائز",
+            emoji = "🎁",
+            priority = 15,
+            description = "Sweepstakes entry, gift card claim verification and prize draw opt-in",
+            matchingKeywords = listOf("sweepstakes", "sweep", "prize", "gift card", "reward", "win", "draw", "مسابقة", "سحب", "جائزة", "بطاقة هدية")
+        ),
+        CategoryDefinition(
+            id = "app_install",
+            labelEn = "App Install",
+            labelAr = "تثبيت التطبيقات",
+            emoji = "📲",
+            priority = 35,
+            description = "Detect app store / APK download redirect buttons and trigger install flow",
+            matchingKeywords = listOf("install", "download", "app", "play store", "apk", "تثبيت", "تنزيل", "تطبيق")
+        ),
+        CategoryDefinition(
+            id = "financial_quote",
+            labelEn = "Financial & Insurance",
+            labelAr = "التأمين والقروض",
+            emoji = "💼",
+            priority = 48,
+            description = "Multi-step quote funnels (auto insurance, life, personal loans, solar energy)",
+            matchingKeywords = listOf("insurance", "quote", "loan", "mortgage", "solar", "credit", "قرض", "تأمين", "عرض سعر")
+        ),
+        CategoryDefinition(
+            id = "gaming_reward",
+            labelEn = "Gaming & Reward",
+            labelAr = "ألعاب ومكافآت",
+            emoji = "🎮",
+            priority = 45,
+            description = "Gaming reward portals, unlock coins/tokens, level completion and play bonuses",
+            matchingKeywords = listOf("game", "gaming", "play", "coins", "points", "reward zone", "لعبة", "العاب", "نقاط")
+        ),
+        CategoryDefinition(
+            id = "ecommerce_trial",
+            labelEn = "Free Trial & Shipping",
+            labelAr = "تجربة مجانية وشحن",
+            emoji = "📦",
+            priority = 75,
+            description = "Sample trial checkout (shipping and handling address entry)",
+            matchingKeywords = listOf("trial", "sample", "free sample", "shipping", "handling", "تجربة", "عينة")
+        ),
+        CategoryDefinition(
             id = "completion_confirm",
             labelEn = "Confirmation",
             labelAr = "تأكيد الإكمال",
@@ -191,10 +236,21 @@ object TaskCategoryPlanner {
             descriptionEn = "Cash App reward path: Email submission, terms consent, sponsor deal bypass, and instant completion verification."
         ),
         PresetOfferPlan(
+            id = "plan_sweep_win",
+            name = "US Sweepstakes Prize Draw ($1,500)",
+            url = "https://instant-rewards.us/sweep-entry",
+            categories = "Sweepstakes Claim, Email Submit, Zip Submit, Survey / Quiz, Skip Upsells, Confirmation",
+            mode = "mode1",
+            duration = 45,
+            completionKeywords = "entry confirmed, congratulations, official rules, ticket number",
+            descriptionAr = "مسار مسابقات الجوائز: فحص الرمز البريدي، تسجيل البريد، استبيان المستهلكين، وتأكيد رقم تذكرة السحب.",
+            descriptionEn = "Sweepstakes Funnel: Postal code entry, email registration, demographic quiz, and draw ticket verification."
+        ),
+        PresetOfferPlan(
             id = "plan_quote_lead",
             name = "Homeowners Solar & Insurance Quote",
             url = "https://quote-generator.us/solar-quote-lead",
-            categories = "Zip Submit, Lead Gen Form, Survey / Quiz, Terms Agreement, Confirmation",
+            categories = "Zip Submit, Financial & Insurance, Lead Gen Form, Survey / Quiz, Terms Agreement, Confirmation",
             mode = "mode1",
             duration = 55,
             completionKeywords = "quote ready, thank you, representative, estimate, confirmed",
@@ -202,6 +258,59 @@ object TaskCategoryPlanner {
             descriptionEn = "Quote funnel: ZIP targeting, property details questionnaire, contact info lead generation, and quote confirmation."
         )
     )
+
+    data class PageAnalysisReport(
+        val url: String = "",
+        val title: String = "",
+        val detectedCategory: String = "general",
+        val detectedCategoryAr: String = "عام",
+        val confidence: Int = 50,
+        val summary: String = "",
+        val fieldsCount: Int = 0,
+        val emailFields: Int = 0,
+        val textFields: Int = 0,
+        val passwordFields: Int = 0,
+        val checkboxesCount: Int = 0,
+        val radioGroupsCount: Int = 0,
+        val selectCount: Int = 0,
+        val buttonsCount: Int = 0,
+        val hasSkipButtons: Boolean = false,
+        val hasOfferClickCandidate: Boolean = false,
+        val isConfirmationPage: Boolean = false,
+        val recommendedNextAction: String = "",
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    fun parseAnalysisReport(rawJson: String): PageAnalysisReport {
+        return try {
+            val obj = JSONObject(rawJson)
+            val cat = obj.optString("detectedCategory", "general")
+            val catDef = findDefinition(cat)
+            PageAnalysisReport(
+                url = obj.optString("url", ""),
+                title = obj.optString("title", ""),
+                detectedCategory = catDef?.labelEn ?: cat,
+                detectedCategoryAr = catDef?.labelAr ?: cat,
+                confidence = obj.optInt("confidence", 70),
+                summary = obj.optString("summary", "Page analyzed"),
+                fieldsCount = obj.optInt("fieldsCount", 0),
+                emailFields = obj.optInt("emailFields", 0),
+                textFields = obj.optInt("textFields", 0),
+                passwordFields = obj.optInt("passwordFields", 0),
+                checkboxesCount = obj.optInt("checkboxesCount", 0),
+                radioGroupsCount = obj.optInt("radioGroupsCount", 0),
+                selectCount = obj.optInt("selectCount", 0),
+                buttonsCount = obj.optInt("buttonsCount", 0),
+                hasSkipButtons = obj.optBoolean("hasSkipButtons", false),
+                hasOfferClickCandidate = obj.optBoolean("hasOfferClickCandidate", false),
+                isConfirmationPage = obj.optBoolean("isConfirmationPage", false),
+                recommendedNextAction = obj.optString("recommendedNextAction", "Continue automation flow"),
+                timestamp = System.currentTimeMillis()
+            )
+        } catch (e: Exception) {
+            PageAnalysisReport(summary = "Analysis parsed with fallback")
+        }
+    }
 
     fun parseCategories(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return emptyList()

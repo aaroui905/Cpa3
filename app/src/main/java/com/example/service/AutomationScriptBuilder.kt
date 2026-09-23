@@ -1834,5 +1834,170 @@ true;
 true;
         """.trimIndent()
     }
+
+    /**
+     * Autonomous Deep DOM Analyzer Script.
+     * Evaluates the active page structure, identifies the funnel stage / category,
+     * and sends a comprehensive analysis report back to AndroidBridge.onPageAnalyzed().
+     */
+    fun buildPageAnalyzerScript(clickTexts: List<String> = emptyList(), activeClickText: String? = null): String {
+        val clickTextsArray = JSONArray().apply {
+            clickTexts.filter { it.isNotBlank() }.forEach { put(it) }
+        }.toString()
+        val activeTargetJson = if (activeClickText.isNullOrBlank()) "null" else JSONObject.quote(activeClickText)
+
+        return """
+(function() {
+  try {
+    var url = window.location.href;
+    var title = document.title || '';
+    var bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+
+    // 1. Scan Inputs & Forms
+    var allInputs = Array.from(document.querySelectorAll('input:not([type=hidden])'));
+    var emailFields = 0;
+    var textFields = 0;
+    var passwordFields = 0;
+    var checkboxes = Array.from(document.querySelectorAll('input[type=checkbox]'));
+    var radios = Array.from(document.querySelectorAll('input[type=radio]'));
+    var selects = Array.from(document.querySelectorAll('select'));
+    var buttons = Array.from(document.querySelectorAll('button, [role=button], input[type=submit], input[type=button]'));
+
+    allInputs.forEach(function(i) {
+      var t = (i.type || 'text').toLowerCase();
+      var meta = ((i.name || '') + ' ' + (i.id || '') + ' ' + (i.placeholder || '') + ' ' + (i.getAttribute('aria-label') || '')).toLowerCase();
+      if (t === 'email' || meta.match(/email|e-mail/)) {
+        emailFields++;
+      } else if (t === 'password') {
+        passwordFields++;
+      } else if (t === 'text' || t === 'tel' || t === 'number') {
+        textFields++;
+      }
+    });
+
+    // 2. Scan for Skip / Upsell Buttons ("No thanks", "Skip", "Not interested")
+    var hasSkipButtons = false;
+    buttons.forEach(function(b) {
+      var txt = ((b.innerText || b.textContent || '') + ' ' + (b.value || '')).toLowerCase().trim();
+      if (txt.match(/no thanks|no, thanks|skip|not interested|pass|continue without/)) {
+        hasSkipButtons = true;
+      }
+    });
+
+    // 3. Scan for Priority #1 Offer Click Candidates
+    var hasOfferCandidate = false;
+    var targets = [];
+    var activeTarget = $activeTargetJson;
+    var configuredTexts = $clickTextsArray;
+    if (activeTarget) targets.push(activeTarget.toLowerCase());
+    for (var k = 0; k < configuredTexts.length; k++) {
+      if (configuredTexts[k]) targets.push(configuredTexts[k].toLowerCase());
+    }
+    if (targets.length === 0) targets = ['walmart', 'gift card', '$1000', 'claim reward', 'continue to offer'];
+
+    var clickableElements = Array.from(document.querySelectorAll('a, button, [role=button], h1, h2, h3, h4, [class*="offer"], [class*="cta"], [class*="btn"]'));
+    for (var c = 0; c < clickableElements.length; c++) {
+      var elTxt = ((clickableElements[c].innerText || clickableElements[c].textContent || '')).toLowerCase().trim();
+      if (elTxt.length > 2) {
+        for (var tg = 0; tg < targets.length; tg++) {
+          if (elTxt.indexOf(targets[tg]) !== -1) {
+            hasOfferCandidate = true;
+            break;
+          }
+        }
+      }
+      if (hasOfferCandidate) break;
+    }
+
+    // 4. Scan for Confirmation / Thank-You Indicators
+    var isConfirmation = false;
+    var confirmKeywords = ['thank you', 'congratulations', 'order received', 'claim confirmed', 'reward credited', 'entry received', 'survey completed', 'successfully registered'];
+    for (var kw = 0; kw < confirmKeywords.length; kw++) {
+      if (bodyText.indexOf(confirmKeywords[kw]) !== -1 || title.toLowerCase().indexOf(confirmKeywords[kw]) !== -1) {
+        isConfirmation = true;
+        break;
+      }
+    }
+
+    // 5. Intelligent Category & Stage Classification
+    var category = 'general';
+    var confidence = 70;
+    var summary = 'Standard Web Page';
+    var nextAction = 'Observe & wait';
+
+    if (isConfirmation) {
+      category = 'completion_confirm';
+      confidence = 98;
+      summary = 'Confirmation / Thank You Stage Detected! Reward claimed.';
+      nextAction = 'Record lead conversion and proceed to next offer';
+    } else if (hasOfferCandidate && (url.includes('blogspot') || bodyText.includes('offer') || buttons.length <= 4)) {
+      category = 'offer_click';
+      confidence = 95;
+      summary = 'Landing Bridge with Priority #1 Offer Target Detected!';
+      nextAction = 'Execute Offer Click to bridge into destination offer funnel';
+    } else if (hasSkipButtons) {
+      category = 'skip_upsells';
+      confidence = 92;
+      summary = 'Co-Reg / Sponsor Upsell Wall Detected';
+      nextAction = 'Auto-click No Thanks / Skip to bypass payment requirement';
+    } else if (radios.length >= 2 || selects.length >= 1 || document.querySelectorAll('.survey-btn, .quiz-option, [data-choice]').length >= 2) {
+      category = 'survey_quiz';
+      confidence = 90;
+      summary = 'Interactive Survey / Quiz Questionnaire Detected (' + radios.length + ' radios, ' + selects.length + ' dropdowns)';
+      nextAction = 'Answer questions consistently matching persona demographics';
+    } else if (emailFields >= 1 && textFields <= 2) {
+      category = 'email_submit';
+      confidence = 94;
+      summary = 'High-Value Email Opt-In / SOI Lead Form Detected';
+      nextAction = 'Fill verified persona email and submit';
+    } else if (textFields >= 3) {
+      category = 'lead_gen';
+      confidence = 88;
+      summary = 'Full Contact Info / Shipping Form Detected (' + textFields + ' fields)';
+      nextAction = 'Fill complete contact persona details (Name, Address, Phone, Zip)';
+    } else if (checkboxes.length >= 1 && checkboxes.some(function(cb) { return !cb.checked; })) {
+      category = 'terms_agreement';
+      confidence = 85;
+      summary = 'Consent & 18+ Age Checkboxes Pending Agreement';
+      nextAction = 'Check all mandatory terms and consent checkboxes';
+    } else {
+      category = 'sweepstakes';
+      confidence = 75;
+      summary = 'Offer Funnel Interactive Page';
+      nextAction = 'Auto-detect active controls and advance';
+    }
+
+    var report = {
+      url: url,
+      title: title,
+      detectedCategory: category,
+      confidence: confidence,
+      summary: summary,
+      fieldsCount: allInputs.length,
+      emailFields: emailFields,
+      textFields: textFields,
+      passwordFields: passwordFields,
+      checkboxesCount: checkboxes.length,
+      radioGroupsCount: Math.ceil(radios.length / 2),
+      selectCount: selects.length,
+      buttonsCount: buttons.length,
+      hasSkipButtons: hasSkipButtons,
+      hasOfferClickCandidate: hasOfferCandidate,
+      isConfirmationPage: isConfirmation,
+      recommendedNextAction: nextAction
+    };
+
+    var reportStr = JSON.stringify(report);
+    if (window.AndroidBridge && typeof window.AndroidBridge.onPageAnalyzed === 'function') {
+      window.AndroidBridge.onPageAnalyzed(reportStr);
+    }
+    return reportStr;
+  } catch(err) {
+    return JSON.stringify({ error: err.message });
+  }
+})();
+        """.trimIndent()
+    }
 }
+
 

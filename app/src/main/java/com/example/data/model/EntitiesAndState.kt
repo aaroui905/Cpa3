@@ -85,5 +85,11 @@ data class AutomationState(
     val isRunning: Boolean = false,
     val loopCount: Int = 0,
     val completedThisSession: Int = 0,
-    val leadsThisSession: Int = 0
+    val leadsThisSession: Int = 0,
+    val activeTabId: String = "tab_1",
+    val detectedPageCategory: String = "",
+    val detectedCategoryAr: String = "",
+    val pageAnalysisSummary: String = "",
+    val lastAnalysisTime: Long = 0L,
+    val reanalysisCountdown: Int = 10
 )
