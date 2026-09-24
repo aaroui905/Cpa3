@@ -88,6 +88,7 @@ import com.example.ui.theme.CpaSuccess
 import com.example.ui.theme.CpaText
 import com.example.ui.theme.CpaTextDim
 import com.example.ui.theme.CpaTextMuted
+import com.example.ui.theme.CpaWarning
 
 @Composable
 fun ProxyPoolScreen(
@@ -103,6 +104,7 @@ fun ProxyPoolScreen(
     onToggleAutoRotate: (Boolean) -> Unit,
     onTestAllProxies: (((Int, Int) -> Unit, (Int, Int) -> Unit) -> Unit)? = null,
     onDeleteFailed: (() -> Unit)? = null,
+    onResetFailed: (() -> Unit)? = null,
     onAutoSelectFastest: (() -> Unit)? = null,
     onExportWorking: (() -> String)? = null,
     modifier: Modifier = Modifier
@@ -719,6 +721,25 @@ fun ProxyPoolScreen(
                             }
                         }
 
+                        // Reset Failed
+                        if (onResetFailed != null && failedCount > 0) {
+                            OutlinedButton(
+                                onClick = { onResetFailed() },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = CpaCard,
+                                    contentColor = CpaAccent
+                                ),
+                                border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(CpaAccent.copy(alpha = 0.5f))),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.height(28.dp).weight(1f).testTag("reset_failed_proxies_button")
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("إعادة تفعيل", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
                         // Export Working
                         if (onExportWorking != null && workingCount > 0) {
                             OutlinedButton(
@@ -859,6 +880,28 @@ fun ProxyPoolScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                                if (proxy.score > 0) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val scoreColor = when {
+                                        proxy.score >= 70 -> CpaSuccess
+                                        proxy.score >= 40 -> CpaWarning
+                                        else -> CpaError
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(scoreColor.copy(alpha = 0.2f))
+                                            .border(1.dp, scoreColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "★ ${proxy.score}",
+                                            color = scoreColor,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                                 if (isActive) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Box(
@@ -877,6 +920,19 @@ fun ProxyPoolScreen(
                                 }
                             }
 
+                            if (proxy.city.isNotBlank() || proxy.country.isNotBlank() || proxy.isp.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                val locStr = listOf(proxy.city, proxy.country).filter { it.isNotBlank() }.joinToString(", ")
+                                val ispStr = if (proxy.isp.isNotBlank()) " · ${proxy.isp}" else ""
+                                Text(
+                                    text = "📍 $locStr$ispStr",
+                                    color = CpaAccent,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
                             if (proxy.username.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
@@ -890,15 +946,16 @@ fun ProxyPoolScreen(
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = res,
-                                    color = if (res.startsWith("Working")) CpaSuccess else CpaError,
+                                    color = if (res.startsWith("Working") || res.startsWith("متصل") || res.startsWith("يعمل")) CpaSuccess else CpaError,
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace
                                 )
                             } ?: run {
-                                if (proxy.lastPingMs > 0) {
+                                if (proxy.lastPingMs > 0 || proxy.status != "untested") {
                                     Spacer(modifier = Modifier.height(2.dp))
+                                    val statsStr = if (proxy.successCount > 0 || proxy.failCount > 0) " (نجاح: ${proxy.successCount} | فشل: ${proxy.failCount})" else ""
                                     Text(
-                                        text = "Ping: ${proxy.lastPingMs}ms · ${proxy.status}",
+                                        text = "Ping: ${proxy.lastPingMs}ms · ${proxy.status}$statsStr",
                                         color = if (proxy.status == "working") CpaSuccess else CpaTextMuted,
                                         fontSize = 10.sp
                                     )

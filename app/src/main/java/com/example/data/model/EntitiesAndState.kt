@@ -19,8 +19,14 @@ data class ProxyItem(
     val username: String = "",
     val password: String = "",
     val country: String = "US",
+    val city: String = "",
+    val isp: String = "",
     val status: String = "active", // active, working, failed
     val lastPingMs: Long = 0L,
+    val successCount: Int = 0,
+    val failCount: Int = 0,
+    val score: Int = 100,
+    val lastCheckedAt: Long = 0L,
     val lastUsedAt: Long = 0L,
     val addedAt: Long = System.currentTimeMillis()
 )

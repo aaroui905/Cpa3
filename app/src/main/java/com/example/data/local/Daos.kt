@@ -166,11 +166,35 @@ interface ProxyDao {
     @Query("UPDATE proxies SET status = :status, lastPingMs = :ping, country = :country WHERE id = :id")
     suspend fun updateProxyStatusAndCountry(id: Long, status: String, ping: Long, country: String)
 
+    @Query("UPDATE proxies SET status = :status, lastPingMs = :ping, country = :country, city = :city, isp = :isp, score = :score, lastCheckedAt = :checkedAt WHERE id = :id")
+    suspend fun updateProxyFullDetails(id: Long, status: String, ping: Long, country: String, city: String, isp: String, score: Int, checkedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE proxies SET successCount = successCount + 1, score = MIN(100, score + 5), lastUsedAt = :timestamp WHERE id = :id")
+    suspend fun recordProxySuccess(id: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE proxies SET failCount = failCount + 1, score = MAX(0, score - 25), status = CASE WHEN failCount >= 2 THEN 'failed' ELSE status END WHERE id = :id")
+    suspend fun recordProxyFailure(id: Long)
+
+    @Query("UPDATE proxies SET type = :newType WHERE id = :id")
+    suspend fun updateProxyType(id: Long, newType: String)
+
+    @Query("UPDATE proxies SET status = 'active' WHERE status = 'failed'")
+    suspend fun resetFailedProxies(): Int
+
     @Query("DELETE FROM proxies WHERE status = 'failed'")
     suspend fun deleteFailedProxies(): Int
 
-    @Query("SELECT * FROM proxies WHERE status = 'working' ORDER BY lastPingMs ASC")
+    @Query("SELECT * FROM proxies WHERE status = 'working' ORDER BY score DESC, lastPingMs ASC")
     suspend fun getWorkingProxies(): List<ProxyItem>
+
+    @Query("SELECT * FROM proxies WHERE status != 'failed' ORDER BY score DESC, lastPingMs ASC")
+    suspend fun getAvailableProxies(): List<ProxyItem>
+
+    @Query("SELECT * FROM proxies WHERE status != 'failed' ORDER BY score DESC, lastPingMs ASC LIMIT 1")
+    suspend fun getBestWorkingProxy(): ProxyItem?
+
+    @Query("SELECT * FROM proxies WHERE country = :countryCode AND status != 'failed' ORDER BY score DESC, lastPingMs ASC LIMIT 1")
+    suspend fun getBestProxyForCountry(countryCode: String): ProxyItem?
 }
 
 @Dao

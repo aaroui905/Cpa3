@@ -504,6 +504,7 @@ fun CpaAutomatorApp(vm: AppViewModel = viewModel()) {
                     onToggleAutoRotate = { vm.updateSettings(settings.copy(proxyAutoRotate = it)) },
                     onTestAllProxies = { onProg, onComp -> vm.testAllProxies(onProg, onComp) },
                     onDeleteFailed = { vm.deleteFailedProxies() },
+                    onResetFailed = { vm.resetFailedProxies() },
                     onAutoSelectFastest = { vm.autoSelectFastestProxy() },
                     onExportWorking = { vm.getWorkingProxiesFormatted() }
                 )

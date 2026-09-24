@@ -18,7 +18,7 @@ import java.util.UUID
 
 @Database(
     entities = [TaskEntity::class, EmailItem::class, ScriptItem::class, CampaignStat::class, ProxyItem::class, OfferClickItem::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

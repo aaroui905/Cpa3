@@ -428,28 +428,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun testProxy(proxy: ProxyItem, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val res = withContext(Dispatchers.IO) {
-                IdentityService.testProxyConnection(
+            val diag = withContext(Dispatchers.IO) {
+                IdentityService.testAndDetectProxy(
                     host = proxy.host,
                     port = proxy.port,
-                    type = proxy.type,
+                    preferredType = proxy.type,
                     user = proxy.username,
                     pass = proxy.password,
                     timeoutMs = 9000
                 )
             }
-            val isWorking = res.first
-            val details = res.second
-            val ping = res.third
+            val isWorking = diag.isWorking
+            val exitIp = diag.exitIp
+            val ping = diag.pingMs
             withContext(Dispatchers.IO) {
-                proxyDao.updateProxyStatus(proxy.id, if (isWorking) "working" else "failed", ping)
+                if (isWorking) {
+                    if (diag.protocol != proxy.type) {
+                        proxyDao.updateProxyType(proxy.id, diag.protocol)
+                    }
+                    proxyDao.updateProxyFullDetails(
+                        id = proxy.id,
+                        status = "working",
+                        ping = ping,
+                        country = diag.country,
+                        city = diag.city,
+                        isp = diag.isp,
+                        score = diag.qualityScore
+                    )
+                } else {
+                    proxyDao.recordProxyFailure(proxy.id)
+                }
             }
             if (isWorking) {
-                addLog("success", "Proxy ${proxy.host}:${proxy.port} ONLINE! Exit: $details - ${ping}ms")
-                onResult(true, "Online: $details (${ping}ms)")
+                val protoMsg = if (diag.protocol != proxy.type) " [بروتوكول: ${diag.protocol.uppercase()}]" else ""
+                val msg = "متصل: $exitIp (${ping}ms) - ${diag.city}, ${diag.country}$protoMsg (جودة: ${diag.qualityScore}/100)"
+                addLog("success", "✅ بروكسي ${proxy.host}:${proxy.port} يعمل بنجاح! $msg")
+                onResult(true, msg)
             } else {
-                addLog("error", "Proxy ${proxy.host}:${proxy.port} failed: $details")
-                onResult(false, "Failed: $details (${ping}ms)")
+                addLog("error", "❌ بروكسي ${proxy.host}:${proxy.port} فشل: ${diag.errorMessage}")
+                onResult(false, "فشل: ${diag.errorMessage}")
             }
         }
     }
@@ -463,13 +480,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         onResult: (Boolean, String) -> Unit
     ) {
         viewModelScope.launch {
-            val res = withContext(Dispatchers.IO) {
-                IdentityService.testProxyConnection(host, port, type, user, pass, timeoutMs = 9000)
+            val diag = withContext(Dispatchers.IO) {
+                IdentityService.testAndDetectProxy(host, port, type, user, pass, timeoutMs = 9000)
             }
-            if (res.first) {
-                onResult(true, "Working: ${res.second} - ${res.third}ms")
+            if (diag.isWorking) {
+                onResult(true, "يعمل: ${diag.exitIp} - ${diag.pingMs}ms [${diag.protocol.uppercase()}]")
             } else {
-                onResult(false, "Failed: ${res.second}")
+                onResult(false, "فشل: ${diag.errorMessage}")
             }
         }
     }
@@ -484,43 +501,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onComplete(0, 0)
                 return@launch
             }
-            addLog("info", "بدء فحص مجموعة البروكسيات (${list.size} بروكسي) بسرعة متوازية...")
+            addLog("info", "بدء فحص مجموعة البروكسيات (${list.size} بروكسي) بسرعة متوازية وذكاء اكتشاف البروتوكول...")
             val total = list.size
             val progressCount = java.util.concurrent.atomic.AtomicInteger(0)
             val workingCount = java.util.concurrent.atomic.AtomicInteger(0)
             val failedCount = java.util.concurrent.atomic.AtomicInteger(0)
 
-            val semaphore = Semaphore(5)
+            val semaphore = Semaphore(6)
 
             withContext(Dispatchers.IO) {
                 val jobs = list.map { proxy ->
                     async {
                         semaphore.withPermit {
-                            val res = IdentityService.testProxyConnection(
+                            val diag = IdentityService.testAndDetectProxy(
                                 host = proxy.host,
                                 port = proxy.port,
-                                type = proxy.type,
+                                preferredType = proxy.type,
                                 user = proxy.username,
                                 pass = proxy.password,
                                 timeoutMs = 8000
                             )
-                            val isWorking = res.first
-                            val ping = res.third
+                            val isWorking = diag.isWorking
+                            val ping = diag.pingMs
 
-                            proxyDao.updateProxyStatus(
-                                id = proxy.id,
-                                status = if (isWorking) "working" else "failed",
-                                ping = ping
-                            )
-
-                            val done = progressCount.incrementAndGet()
                             if (isWorking) {
+                                if (diag.protocol != proxy.type) {
+                                    proxyDao.updateProxyType(proxy.id, diag.protocol)
+                                }
+                                proxyDao.updateProxyFullDetails(
+                                    id = proxy.id,
+                                    status = "working",
+                                    ping = ping,
+                                    country = diag.country,
+                                    city = diag.city,
+                                    isp = diag.isp,
+                                    score = diag.qualityScore
+                                )
                                 workingCount.incrementAndGet()
-                                addLog("success", "[#$done/$total] ✅ ${proxy.host}:${proxy.port} ONLINE (${res.second}) - ${ping}ms")
+                                addLog("success", "[#${progressCount.incrementAndGet()}/$total] ✅ ${proxy.host}:${proxy.port} [${diag.protocol.uppercase()}] ONLINE (${diag.exitIp}) - ${ping}ms | ${diag.country} (جودة: ${diag.qualityScore}★)")
                             } else {
+                                proxyDao.recordProxyFailure(proxy.id)
                                 failedCount.incrementAndGet()
-                                addLog("warning", "[#$done/$total] ❌ ${proxy.host}:${proxy.port} OFFLINE (${res.second})")
+                                addLog("warning", "[#${progressCount.incrementAndGet()}/$total] ❌ ${proxy.host}:${proxy.port} OFFLINE (${diag.errorMessage})")
                             }
+
+                            val done = progressCount.get()
                             withContext(Dispatchers.Main) {
                                 onProgress(done, total)
                             }
@@ -547,19 +572,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resetFailedProxies(onComplete: ((Int) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val count = proxyDao.resetFailedProxies()
+            addLog("info", "تمت إعادة تعيين $count بروكسي إلى الحالة النشطة لإعادة الفحص.")
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke(count)
+            }
+        }
+    }
+
     fun autoSelectFastestProxy(onResult: ((ProxyItem?) -> Unit)? = null) {
         viewModelScope.launch {
-            val fastest = withContext(Dispatchers.IO) {
-                val working = proxyDao.getWorkingProxies()
-                working.filter { it.lastPingMs > 0 }.minByOrNull { it.lastPingMs } ?: working.firstOrNull()
+            val best = withContext(Dispatchers.IO) {
+                proxyDao.getBestWorkingProxy() ?: proxyDao.getWorkingProxies().minByOrNull { if (it.lastPingMs > 0) it.lastPingMs else 999999 }
             }
-            if (fastest != null) {
-                setActiveProxy(fastest)
-                addLog("success", "تم تفعيل أسرع بروكسي: ${fastest.host}:${fastest.port} (${fastest.lastPingMs}ms)")
+            if (best != null) {
+                setActiveProxy(best)
+                addLog("success", "تم تفعيل أفضل بروكسي ذكياً: ${best.host}:${best.port} [${best.type.uppercase()}] (بنق: ${best.lastPingMs}ms | جودة: ${best.score}★)")
             } else {
                 addLog("warning", "لا توجد بروكسيات صالحة في القائمة حالياً. يرجى فحص البروكسيات أولاً.")
             }
-            onResult?.invoke(fastest)
+            onResult?.invoke(best)
         }
     }
 
@@ -1100,6 +1134,119 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun prepareAndValidateProxy(taskName: String): ExtractedInfo = withContext(Dispatchers.IO) {
+        var s = _settings.value
+        val hasConfiguredProxy = s.proxyHost.isNotBlank() && s.proxyPort.toIntOrNull() != null && s.proxyPort.toInt() > 0
+
+        if (s.proxyAutoRotate || !hasConfiguredProxy) {
+            val candidate = proxyDao.getBestWorkingProxy() ?: proxyDao.getNextWorkingProxy() ?: proxyDao.getNextProxy()
+            if (candidate != null) {
+                proxyDao.markProxyUsed(candidate.id)
+                s = s.copy(
+                    proxyType = candidate.type,
+                    proxyHost = candidate.host,
+                    proxyPort = candidate.port.toString(),
+                    proxyUser = candidate.username,
+                    proxyPass = candidate.password
+                )
+                withContext(Dispatchers.Main) { _settings.value = s }
+                addLog("info", "🔄 [تدوير ذكي]: تم اختيار البروكسي: ${candidate.host}:${candidate.port} [${candidate.type.uppercase()}]", taskName)
+            }
+        }
+
+        val port = s.proxyPort.toIntOrNull() ?: 0
+        if (s.proxyHost.isBlank() || port <= 0) {
+            WebProxyManager.clearProxy(getApplication())
+            val directGeo = IdentityService.fetchGeoInfo()
+            withContext(Dispatchers.Main) {
+                _extractedInfo.value = directGeo
+                _automationState.update { it.copy(activeIp = directGeo.ip) }
+            }
+            return@withContext directGeo
+        }
+
+        var activeHost = s.proxyHost
+        var activePort = port
+        var activeType = s.proxyType
+        var activeUser = s.proxyUser
+        var activePass = s.proxyPass
+
+        addLog("info", "🔍 [ذكاء البروكسي]: جاري التحقق السريع من استجابة البروكسي $activeHost:$activePort...", taskName)
+        var diag = IdentityService.testAndDetectProxy(activeHost, activePort, activeType, activeUser, activePass, timeoutMs = 5000)
+
+        if (!diag.isWorking) {
+            addLog("warning", "⚠️ [ذكاء البروكسي]: البروكسي ($activeHost:$activePort) لم يستجب (${diag.errorMessage}). جاري البحث والتحويل التلقائي لبديل موثوق...", taskName)
+
+            val fallbacks = proxyDao.getWorkingProxies().filterNot { it.host == activeHost && it.port == activePort }
+            var recovered = false
+
+            for (fb in fallbacks) {
+                addLog("info", "⚡ [محاولة بديل]: فحص البروكسي ${fb.host}:${fb.port}...", taskName)
+                val fbDiag = IdentityService.testAndDetectProxy(fb.host, fb.port, fb.type, fb.username, fb.password, timeoutMs = 4500)
+                if (fbDiag.isWorking) {
+                    activeHost = fb.host
+                    activePort = fb.port
+                    activeType = fbDiag.protocol
+                    activeUser = fb.username
+                    activePass = fb.password
+                    diag = fbDiag
+                    recovered = true
+
+                    proxyDao.recordProxySuccess(fb.id)
+                    s = s.copy(
+                        proxyType = activeType,
+                        proxyHost = activeHost,
+                        proxyPort = activePort.toString(),
+                        proxyUser = activeUser,
+                        proxyPass = activePass
+                    )
+                    withContext(Dispatchers.Main) { _settings.value = s }
+                    addLog("success", "✅ [ذكاء البروكسي]: نجح التحويل التلقائي إلى البروكسي البديل: $activeHost:$activePort (${fbDiag.exitIp} | بنق: ${fbDiag.pingMs}ms)", taskName)
+                    break
+                } else {
+                    proxyDao.recordProxyFailure(fb.id)
+                }
+            }
+
+            if (!recovered) {
+                addLog("error", "❌ [ذكاء البروكسي]: لم يتم العثور على بديل شغال. الاستمرار مع إعدادات البروكسي الحالية.", taskName)
+            }
+        }
+
+        WebProxyManager.applyProxy(getApplication(), activeHost, activePort, activeType, activeUser, activePass) { success, msg ->
+            addLog(if (success) "info" else "warning", "[ProxyController] $msg", taskName)
+        }
+
+        val geo = if (diag.isWorking && diag.exitIp.isNotBlank()) {
+            ExtractedInfo(
+                ip = diag.exitIp,
+                country = if (diag.country == "US") "United States" else diag.country,
+                countryCode = diag.country,
+                city = diag.city.ifBlank { "New York" },
+                region = "",
+                street = "",
+                postalCode = "10001",
+                timezone = "America/New_York",
+                language = "en-${diag.country}",
+                currency = if (diag.country == "US") "USD" else "EUR",
+                isp = diag.isp.ifBlank { "$activeHost:$activePort" },
+                org = diag.isp,
+                latitude = 40.7128,
+                longitude = -74.0060,
+                isProxy = true
+            )
+        } else {
+            IdentityService.fetchGeoInfo(activeHost, activePort, activeType, activeUser, activePass)
+        }
+
+        withContext(Dispatchers.Main) {
+            _extractedInfo.value = geo
+            _automationState.update { it.copy(activeIp = geo.ip) }
+        }
+        addLog("info", "🌐 IP المتصل: ${geo.ip} (${geo.city}, ${geo.country}) [مزود الخدمة: ${geo.isp}]", taskName)
+        return@withContext geo
+    }
+
     private suspend fun runSingleTask(task: TaskEntity) {
         taskDao.updateTaskStatus(task.id, "running")
         val parsedCats = TaskCategoryPlanner.parseCategories(task.categories)
@@ -1117,34 +1264,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         addLog("info", "--- Starting task: ${task.name} [Funnel: $planSummary] ---", task.name)
 
-        // 1. Proxy & Geo Info
-        _automationState.update { it.copy(phase = "fetching_geo", phaseDetail = "Updating IP & Geo info...") }
-        var s = _settings.value
-        if (s.proxyAutoRotate) {
-            val nextProxy = proxyDao.getNextWorkingProxy() ?: proxyDao.getNextProxy()
-            if (nextProxy != null) {
-                proxyDao.markProxyUsed(nextProxy.id)
-                s = s.copy(
-                    proxyType = nextProxy.type,
-                    proxyHost = nextProxy.host,
-                    proxyPort = nextProxy.port.toString(),
-                    proxyUser = nextProxy.username,
-                    proxyPass = nextProxy.password
-                )
-                _settings.value = s
-                val rotatedPort = s.proxyPort.toIntOrNull()
-                WebProxyManager.applyProxy(getApplication(), s.proxyHost, rotatedPort, s.proxyType, s.proxyUser, s.proxyPass) { success, msg ->
-                    addLog(if (success) "info" else "warning", "[ProxyController] $msg", task.name)
-                }
-                addLog("info", "🔄 Rotated IP using proxy: ${nextProxy.host}:${nextProxy.port} [${nextProxy.type.uppercase()}]", task.name)
-            }
-        }
-        val port = s.proxyPort.toIntOrNull()
-        WebProxyManager.applyProxy(getApplication(), s.proxyHost, port, s.proxyType, s.proxyUser, s.proxyPass)
-        val geo = IdentityService.fetchGeoInfo(s.proxyHost, port, s.proxyType, s.proxyUser, s.proxyPass)
-        _extractedInfo.value = geo
-        _automationState.update { it.copy(activeIp = geo.ip) }
-        addLog("info", "Active IP: ${geo.ip} (${geo.city}, ${geo.country})", task.name)
+        // 1. Proxy & Geo Info (Intelligent Health Checking, Auto-Protocol & Failover)
+        _automationState.update { it.copy(phase = "fetching_geo", phaseDetail = "فحص البروكسي و IP بالذكاء التلقائي...") }
+        val geo = prepareAndValidateProxy(task.name)
 
         // 2. Identity Generation
         _automationState.update { it.copy(phase = "generating_identity", phaseDetail = "Generating profile identity...") }
@@ -1202,6 +1324,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 4. CPA Grip Lead Check
+        val s = _settings.value
         if (s.cpaUserId.isNotBlank() && s.cpaApiKey.isNotBlank()) {
             _automationState.update { it.copy(phase = "checking_lead", phaseDetail = "Verifying conversion on CPA Grip...") }
             val leadResult = IdentityService.checkLeadCPA(s.cpaUserId, s.cpaApiKey, geo.ip)
