@@ -874,7 +874,7 @@ object IdentityService {
         }
     }
 
-    const val DEFAULT_ASOCKS_URL = "https://asocks-list.org/2aO0MbMZ6MsQ6klCK248dXEekfbNKyzf.txt?limit=10&type=res&template_id=2&country=US"
+    const val DEFAULT_ASOCKS_URL = "https://asocks-list.org/Lb5lLZADymiWzwGhSVeZyGrcdJcc9m3g.txt?limit=10&type=res&template_id=2&country=US"
 
     private fun extractJsonString(json: String, key: String): String? {
         val regex = Regex(""""$key"\s*:\s*"([^"]+)"""")
