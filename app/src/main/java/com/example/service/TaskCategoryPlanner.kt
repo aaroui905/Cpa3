@@ -50,6 +50,25 @@ data class PresetOfferPlan(
     val descriptionEn: String
 )
 
+data class PageWorkStep(
+    val target: String,
+    val action: String,
+    val reason: String,
+    val confidence: Int = 70
+)
+
+data class AdaptivePagePlan(
+    val pageType: String,
+    val pageTypeAr: String,
+    val recommendedCategory: String,
+    val recommendedCategoryAr: String,
+    val summary: String,
+    val pageActions: List<PageWorkStep>,
+    val workMap: List<PageWorkStep>,
+    val fallbackStrategy: String,
+    val confidence: Int
+)
+
 object TaskCategoryPlanner {
 
     val PRESET_CATEGORIES = listOf(
@@ -58,9 +77,27 @@ object TaskCategoryPlanner {
             labelEn = "Offer Click",
             labelAr = "النقرة على العرض",
             emoji = "🖱️",
-            priority = 1, // ALWAYS #1 in execution order: auto-clicks designated text/button to redirect to the offer site
+            priority = 1,
             description = "Scan landing page for specified target text (e.g., 'Get $1000 Walmart gift card'), auto-click to transfer to the main destination offer site",
             matchingKeywords = listOf("offer click", "click offer", "النقرة على العرض", "النقرة", "نقرة", "click", "نقر", "offer_click", "عرض")
+        ),
+        CategoryDefinition(
+            id = "page_scan",
+            labelEn = "Page Scan",
+            labelAr = "فحص الصفحة",
+            emoji = "🔎",
+            priority = 2,
+            description = "Inspect layout, buttons, fields, text labels and dominant call-to-action before acting",
+            matchingKeywords = listOf("page scan", "scan page", "layout", "inspect", "فحص", "مراجعة الصفحة")
+        ),
+        CategoryDefinition(
+            id = "scroll_action",
+            labelEn = "Scroll Action",
+            labelAr = "التمرير",
+            emoji = "📜",
+            priority = 6,
+            description = "Scroll until the intended form or CTA becomes visible on the page",
+            matchingKeywords = listOf("scroll", "scroll action", "scroll down", "تمرير", "اسكرول")
         ),
         CategoryDefinition(
             id = "email_submit",
@@ -133,6 +170,33 @@ object TaskCategoryPlanner {
             priority = 80,
             description = "Ensure terms, privacy policy, and 18+ majority age checkboxes are checked",
             matchingKeywords = listOf("terms", "agree", "checkbox", "18", "شروط", "موافقة")
+        ),
+        CategoryDefinition(
+            id = "captcha_solver",
+            labelEn = "Captcha / Verification",
+            labelAr = "كابتشا / تحقق",
+            emoji = "🛡️",
+            priority = 85,
+            description = "Handle captcha or verification challenge before final submission",
+            matchingKeywords = listOf("captcha", "verify", "verification", "challenge", "robot", "security", "كابتشا", "تحقق")
+        ),
+        CategoryDefinition(
+            id = "address_capture",
+            labelEn = "Address / Shipping",
+            labelAr = "العنوان والشحن",
+            emoji = "🚚",
+            priority = 33,
+            description = "Fill shipping, address, city, zip and delivery details when required",
+            matchingKeywords = listOf("address", "shipping", "delivery", "city", "zip", "street", "عنوان", "شحن")
+        ),
+        CategoryDefinition(
+            id = "cta_click",
+            labelEn = "CTA / Continue",
+            labelAr = "زر المتابعة",
+            emoji = "➡️",
+            priority = 95,
+            description = "Press the main call to action button such as Continue, Next, Submit, Claim, Start",
+            matchingKeywords = listOf("continue", "next", "submit", "claim", "start", "continue button", "متابعة", "التالي", "إرسال")
         ),
         CategoryDefinition(
             id = "sweepstakes",
@@ -393,6 +457,128 @@ object TaskCategoryPlanner {
         val steps = orderCategories(categories)
         if (steps.isEmpty()) return "Standard Full-Auto Flow"
         return steps.joinToString(" ➔ ") { "${it.order}. ${it.emoji} ${it.labelEn}" }
+    }
+
+    fun buildAdaptivePagePlan(
+        url: String,
+        categories: List<String> = emptyList(),
+        contextText: String = ""
+    ): AdaptivePagePlan {
+        val normalizedUrl = (url ?: "").trim().lowercase()
+        val normalizedText = (contextText ?: "").lowercase()
+        val mergedText = "$normalizedUrl $normalizedText"
+
+        val inferredCategory = when {
+            mergedText.contains("survey") || mergedText.contains("quiz") || mergedText.contains("opinion") -> "Survey / Quiz"
+            mergedText.contains("signup") || mergedText.contains("register") || mergedText.contains("create account") -> "Sign Up"
+            mergedText.contains("offer") || mergedText.contains("gift") || mergedText.contains("reward") || mergedText.contains("sweep") -> "Offer Click"
+            mergedText.contains("zip") || mergedText.contains("postal") || mergedText.contains("address") -> "Zip Submit"
+            mergedText.contains("lead") || mergedText.contains("quote") || mergedText.contains("insurance") -> "Lead Gen Form"
+            mergedText.contains("terms") || mergedText.contains("agree") || mergedText.contains("privacy") -> "Terms Agreement"
+            mergedText.contains("captcha") || mergedText.contains("verify") -> "Captcha / Verification"
+            mergedText.contains("thank") || mergedText.contains("success") || mergedText.contains("completed") -> "Confirmation"
+            else -> if (categories.isNotEmpty()) categories.first() else "Page Scan"
+        }
+
+        val categoryList = if (categories.isNotEmpty()) categories else listOf(
+            "Offer Click",
+            "Email Submit",
+            "Survey / Quiz",
+            "Lead Gen Form",
+            "Terms Agreement",
+            "Confirmation"
+        )
+
+        val pageType = when {
+            mergedText.contains("survey") || mergedText.contains("quiz") -> "survey"
+            mergedText.contains("signup") || mergedText.contains("register") -> "registration"
+            mergedText.contains("gift") || mergedText.contains("reward") || mergedText.contains("sweep") -> "reward_offer"
+            mergedText.contains("quote") || mergedText.contains("insurance") || mergedText.contains("loan") -> "lead_gen"
+            mergedText.contains("thank") || mergedText.contains("success") || mergedText.contains("confirmation") -> "confirmation"
+            else -> "general"
+        }
+
+        val pageTypeAr = when (pageType) {
+            "survey" -> "استبيان"
+            "registration" -> "تسجيل"
+            "reward_offer" -> "عرض مكافأة"
+            "lead_gen" -> "استمارة بيانات"
+            "confirmation" -> "تأكيد الإكمال"
+            else -> "صفحة عامة"
+        }
+
+        val workMap = when (pageType) {
+            "survey" -> listOf(
+                PageWorkStep("Survey question block", "Read visible labels and answer the most relevant option", "Questions are the crucial branch point on this page", 86),
+                PageWorkStep("Email field", "Fill the first email/contact field with a fresh generated address", "Most survey funnels require email before reward verification", 90),
+                PageWorkStep("Submit/next button", "Click the strongest CTA matching Continue, Submit, Next, or Claim", "This moves the flow toward completion and confirmation", 88),
+                PageWorkStep("Success page", "Wait for the thank-you / confirmation message and record completion", "Final confirmation is the completion signal", 92)
+            )
+            "registration" -> listOf(
+                PageWorkStep("Register form", "Find the primary sign-up field set and fill it in order", "Registration pages usually expose first email/name fields early", 84),
+                PageWorkStep("Password / confirm", "Generate a secure password and confirm it if required", "This is a routine field gate before submission", 83),
+                PageWorkStep("Terms checkbox", "Check terms/privacy agreement if visible", "Consent is common before final registration", 81),
+                PageWorkStep("Create account", "Click the main account creation button", "Completes the registration flow", 92)
+            )
+            "reward_offer" -> listOf(
+                PageWorkStep("Offer button / CTA", "Look for the dominant reward button and click it once", "This is the main bridge toward the offer destination", 95),
+                PageWorkStep("Email input", "Use the first suitable email field for the generated identity", "Email collection is the standard first conversion gate", 90),
+                PageWorkStep("Scroll to form", "Scroll or expand hidden form sections if the page is long", "Long CPA pages often hide fields below the fold", 82),
+                PageWorkStep("Skip / close wall", "Dismiss sponsor or upsell popup by clicking skip/no thanks when present", "Upsell overlays often block conversion", 87)
+            )
+            "lead_gen" -> listOf(
+                PageWorkStep("Zip / postal field", "Fill country-specific zip code if the page asks for it", "Geo targeting is often the first lead field", 85),
+                PageWorkStep("Lead form", "Complete contact information and address fields", "This is the main conversion data collection step", 91),
+                PageWorkStep("Terms agreement", "Check age, terms, privacy checkboxes when required", "The final lead form often needs consent", 86),
+                PageWorkStep("Quote / continue", "Submit the lead form and wait for the confirmation screen", "This moves the funnel to the final verification step", 88)
+            )
+            "confirmation" -> listOf(
+                PageWorkStep("Thank-you state", "Detect final confirmation text or success banner", "This proves the task was successfully completed", 98),
+                PageWorkStep("Reward claim", "Record reward/claim keywords if shown", "Successful conversion message is the main trust signal", 96),
+                PageWorkStep("Stop automation", "Finalize run and move to the next repeat cycle if enabled", "A successful page ends the active conversion sequence", 100)
+            )
+            else -> listOf(
+                PageWorkStep("Main form or CTA", "Read the page title and visible labels, then target the biggest action button or field block", "Unknown pages still expose a dominant action target", 72),
+                PageWorkStep("Field scan", "Detect the first email, zip, text, or select field closest to the primary label", "Smart fallback is based on visible labels and proximity", 73),
+                PageWorkStep("Continue button", "Press the nearest submit/continue button after field completion", "This covers pages that do not follow a strict preset funnel", 74),
+                PageWorkStep("Success check", "Check for confirmation text, a thank-you banner, or a reward claim message", "This closes the unknown-page fallback loop", 79)
+            )
+        }
+
+        val generatedActions = categoryList.mapIndexed { index, category ->
+            val categoryDef = findDefinition(category)
+            PageWorkStep(
+                target = categoryDef?.labelEn ?: category,
+                action = when {
+                    category.contains("Email", ignoreCase = true) -> "Locate and fill email field, then continue"
+                    category.contains("Survey", ignoreCase = true) || category.contains("Quiz", ignoreCase = true) -> "Answer the visible questions in the most relevant order"
+                    category.contains("Zip", ignoreCase = true) || category.contains("Postal", ignoreCase = true) -> "Enter a valid postal/zip code for the target country"
+                    category.contains("Lead", ignoreCase = true) || category.contains("Form", ignoreCase = true) -> "Fill and submit the contact/data form"
+                    category.contains("Terms", ignoreCase = true) -> "Check privacy and consent boxes as required"
+                    category.contains("Offer", ignoreCase = true) -> "Click the primary offer/CTA to continue toward the destination"
+                    category.contains("Confirmation", ignoreCase = true) -> "Wait for thank-you or success confirmation"
+                    else -> "Inspect the matching page section and execute the key control action"
+                },
+                reason = "Matched category ${categoryDef?.labelEn ?: category} to the current page intent; this keeps the task adaptive instead of rigidly following a fixed sequence",
+                confidence = 70 + index * 5
+            )
+        }
+
+        val recommendedCategory = if (categoryList.isNotEmpty()) categoryList.first() else inferredCategory
+        val recommendedCategoryDef = findDefinition(recommendedCategory)
+        val fallbackStrategy = "Analyze the current page for visible labels, nearby fields, dominant CTA buttons, and confirmation text; when a category is unclear, extract the nearest matching field/button from the page body and build the next action around it instead of relying on a fixed category order."
+
+        return AdaptivePagePlan(
+            pageType = pageType,
+            pageTypeAr = pageTypeAr,
+            recommendedCategory = recommendedCategory,
+            recommendedCategoryAr = recommendedCategoryDef?.labelAr ?: recommendedCategory,
+            summary = "AI Smart Work Template: ${pageTypeAr} • priority=${recommendedCategory} • ${workMap.firstOrNull()?.action ?: "inspect page and complete the main CTA"}",
+            pageActions = generatedActions,
+            workMap = workMap,
+            fallbackStrategy = fallbackStrategy,
+            confidence = minOf(99, 60 + workMap.size * 7 + (if (categories.isNotEmpty()) 10 else 0))
+        )
     }
 
     /**

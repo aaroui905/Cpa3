@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.LocationOn
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.AutomationState
 import com.example.data.model.ExtractedInfo
 import com.example.data.model.GeneratedIdentity
+import com.example.service.TaskCategoryPlanner
 import com.example.ui.theme.CpaAccent
 import com.example.ui.theme.CpaAccentDim
 import com.example.ui.theme.CpaBg
@@ -134,6 +136,30 @@ fun InfoScreen(
                 InfoRow("ISP / Org", extractedInfo.isp)
                 InfoRow("Coordinates", "${extractedInfo.latitude}, ${extractedInfo.longitude}")
                 InfoRow("Proxy Status", if (extractedInfo.isProxy) "Active Proxy" else "Direct Connection")
+            }
+        }
+
+        // Smart work template card
+        item {
+            val smartPlan = TaskCategoryPlanner.buildAdaptivePagePlan(
+                url = automationState.currentUrl ?: extractedInfo.ip,
+                categories = TaskCategoryPlanner.parseCategories(automationState.activeTaskCategories),
+                contextText = automationState.pageAnalysisSummary
+            )
+            SectionCard(title = "SMART WORK TEMPLATE", icon = Icons.Default.AutoAwesome) {
+                InfoRow("Page Type", "${smartPlan.pageTypeAr} (${smartPlan.pageType})")
+                InfoRow("Recommended Category", smartPlan.recommendedCategoryAr)
+                InfoRow("Confidence", "${smartPlan.confidence}%")
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Execution Map", color = CpaTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                smartPlan.workMap.forEach { step ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text("• ${step.target}", color = CpaText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(step.action, color = CpaTextMuted, fontSize = 10.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(smartPlan.fallbackStrategy, color = CpaText, fontSize = 10.sp)
             }
         }
 

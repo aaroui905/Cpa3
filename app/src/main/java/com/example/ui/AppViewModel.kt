@@ -727,11 +727,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val report = TaskCategoryPlanner.parseAnalysisReport(reportJson)
             _automationState.update { state ->
                 val currentCats = TaskCategoryPlanner.parseCategories(state.activeTaskCategories)
+                val adaptive = TaskCategoryPlanner.buildAdaptivePagePlan(
+                    url = state.currentUrl ?: report.url,
+                    categories = currentCats.ifEmpty { listOf(report.detectedCategory) },
+                    contextText = report.summary
+                )
+
+                val core = if (adaptive.recommendedCategory.isNotBlank()) {
+                    listOf(adaptive.recommendedCategory) + currentCats.filter { !it.equals(adaptive.recommendedCategory, ignoreCase = true) }
+                } else {
+                    currentCats
+                }
+
                 val updatedCats = if (report.detectedCategory.isNotBlank() && report.detectedCategory != "general") {
-                    val reordered = (listOf(report.detectedCategory) + currentCats.filter { !it.equals(report.detectedCategory, ignoreCase = true) }).distinct()
+                    val reordered = (listOf(report.detectedCategory) + core.filter { !it.equals(report.detectedCategory, ignoreCase = true) }).distinct()
                     reordered.joinToString(", ")
                 } else {
-                    state.activeTaskCategories
+                    core.joinToString(", ")
                 }
 
                 state.copy(
@@ -939,7 +951,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             addLog("info", "Starting task directly: ${task.name}", task.name)
             try {
-                runSingleTask(task)
+                runSingleTask(task, repeatOrdinal = task.completedRuns + 1)
             } catch (e: Exception) {
                 addLog("error", "Task execution error: ${e.localizedMessage}", task.name)
             } finally {
@@ -1088,7 +1100,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             continue
                         }
 
-                        runSingleTask(task)
+                        runSingleTask(task, repeatOrdinal = task.completedRuns + 1)
 
                         // Wait between tasks
                         if (_automationState.value.isRunning) {
@@ -1247,10 +1259,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return@withContext geo
     }
 
-    private suspend fun runSingleTask(task: TaskEntity) {
+    private suspend fun rotateProxyForRepeat(taskName: String, repeatOrdinal: Int) {
+        val available = withContext(Dispatchers.IO) { proxyDao.getAvailableProxies() }
+        if (available.isEmpty()) return
+
+        val ordered = available.sortedBy { it.lastUsedAt }
+        val selected = ordered[(repeatOrdinal - 1) % ordered.size]
+        proxyDao.markProxyUsed(selected.id)
+
+        val s = _settings.value.copy(
+            proxyType = selected.type,
+            proxyHost = selected.host,
+            proxyPort = selected.port.toString(),
+            proxyUser = selected.username,
+            proxyPass = selected.password
+        )
+        _settings.value = s
+        saveSettingsToPrefs(s)
+
+        WebProxyManager.applyProxy(getApplication(), selected.host, selected.port, selected.type, selected.username, selected.password) { success, msg ->
+            addLog(if (success) "info" else "warning", "[ProxyController] $msg", taskName)
+        }
+
+        val geo = IdentityService.fetchGeoInfo(selected.host, selected.port, selected.type, selected.username, selected.password)
+        _extractedInfo.value = geo
+        _automationState.update { it.copy(activeIp = geo.ip) }
+        addLog("success", "🔁 [تكرار #$repeatOrdinal] تم تبديل البروكسي بالتسلسل إلى ${selected.host}:${selected.port} [${selected.type.uppercase()}] | IP: ${geo.ip}", taskName)
+    }
+
+    private suspend fun resetBrowserAndEmailsForRepeat(taskName: String) {
+        withContext(Dispatchers.IO) {
+            emailDao.clearAllEmails()
+        }
+        _browserCommand.value = BrowserCommand.ClearCacheAndStorage
+        delay(600)
+        addLog("info", "🧹 [تكرار جديد] تم مسح الكاش والبروكسي والبيانات المؤقتة قبل بدء الجولة الجديدة.", taskName)
+    }
+
+    private suspend fun runSingleTask(task: TaskEntity, repeatOrdinal: Int = 1) {
         taskDao.updateTaskStatus(task.id, "running")
         val parsedCats = TaskCategoryPlanner.parseCategories(task.categories)
         val planSummary = TaskCategoryPlanner.formatPlanSummary(parsedCats)
+        val adaptivePlan = TaskCategoryPlanner.buildAdaptivePagePlan(task.url, parsedCats, task.completionKeywords)
         _automationState.update {
             it.copy(
                 currentTaskId = task.id,
@@ -1258,11 +1308,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 currentUrl = task.url,
                 activeTaskCategories = task.categories,
                 activePlanSummary = planSummary,
+                detectedPageCategory = adaptivePlan.pageType,
+                detectedCategoryAr = adaptivePlan.pageTypeAr,
+                pageAnalysisSummary = adaptivePlan.summary,
                 phase = "preparing",
                 phaseDetail = "AI Funnel: $planSummary"
             )
         }
-        addLog("info", "--- Starting task: ${task.name} [Funnel: $planSummary] ---", task.name)
+        addLog("info", "--- Starting task: ${task.name} [Funnel: $planSummary | Adaptive: ${adaptivePlan.pageTypeAr}] ---", task.name)
+
+        if (repeatOrdinal > 1) {
+            resetBrowserAndEmailsForRepeat(task.name)
+            rotateProxyForRepeat(task.name, repeatOrdinal)
+        }
 
         // 1. Proxy & Geo Info (Intelligent Health Checking, Auto-Protocol & Failover)
         _automationState.update { it.copy(phase = "fetching_geo", phaseDetail = "فحص البروكسي و IP بالذكاء التلقائي...") }
